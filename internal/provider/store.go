@@ -62,6 +62,16 @@ type Store struct {
 	dir   string
 	mu    sync.Mutex
 	items []Provider
+	// addrs caches Addrs by the provider file it came from: the interface
+	// asks every snapshot, and the file changes only when the provider does.
+	addrs map[string]addrEntry
+}
+
+// addrEntry is what parseAddrs made of a provider file, and which file.
+type addrEntry struct {
+	size int64
+	mod  time.Time
+	by   map[string]string
 }
 
 func Open(dir string) (*Store, error) {

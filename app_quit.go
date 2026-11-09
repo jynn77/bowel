@@ -151,7 +151,14 @@ func (a *App) quitSystemProxy(ctx context.Context) {
 
 // quitCore ends the core for good, and saves the traffic counted so far.
 func (a *App) quitCore(context.Context) {
+	// TUN first: the core takes it down properly, and only then is it stopped.
+	// Stopping is a kill here, and a killed core cannot take its route table
+	// entries with it.
+	if s := a.settings.Get(); s.Tun && a.takeoverOn(s) {
+		a.closeTun()
+	}
 	a.core.Close()
+	a.repairTun() // for what a killed core could not do, and a crash before it
 	a.mu.Lock()
 	cancel := a.monCancel
 	a.monCancel = nil

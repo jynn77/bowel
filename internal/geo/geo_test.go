@@ -105,6 +105,15 @@ func TestFromName(t *testing.T) {
 		{"上海电信 01", "CN", "上海"},
 		{"中国 01", "CN", "中国"},
 
+		// Zero-width characters between the letters of a name, as some
+		// providers write it so that a filter does not read the place: they
+		// are dropped, not treated as word breaks.
+		{"[Vless] H\u200bK\u200b \u200bT\u200bG:@MiaChatChannel", "HK", "香港"},
+		{"[Vless] J\u200bP\u200b \u200bT\u200bG 2", "JP", "日本"},
+		{"U\u200bS\u200b 洛杉矶", "US", "洛杉矶"},
+		{"香\u200b港 01", "HK", "香港"},
+		{"日\u200b本\u200b东\u200b京", "JP", "东京"},
+
 		// Nothing.
 		{"", "", ""},
 		{"剩余流量：100GB", "", ""}, // gigabytes, not Great Britain

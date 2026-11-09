@@ -49,6 +49,16 @@ type Settings struct {
 	Bypass    []string `json:"bypass"`
 	LogLevel  string   `json:"logLevel"`
 	TestURL   string   `json:"testUrl"`
+	// LocateURL is what a probe asks, through a node, where the node exits:
+	// it must answer with the address and the country it sees.
+	LocateURL string `json:"locateUrl"`
+	// IPQuality has the exit's address looked up: whether it belongs to a
+	// data centre or a home line, and how clean it looks. Off unless asked,
+	// since it asks a service outside about every exit.
+	IPQuality bool `json:"ipQuality"`
+	// IPInfoURL is the service that answers that, with {ip} where the
+	// address goes. Empty asks ipinfo.DefaultSource.
+	IPInfoURL string `json:"ipInfoUrl"`
 
 	// RouteTargets are the sites a route is tested against, where the user
 	// changed them from its defaults (TargetsOf).
@@ -108,7 +118,36 @@ var Defaults = Settings{
 	Bypass:      []string{"localhost", "127.0.0.1", "*.local", "169.254/16", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "timestamp.apple.com"},
 	LogLevel:    "info",
 	TestURL:     "https://www.gstatic.com/generate_204",
+	LocateURL:   "https://www.cloudflare.com/cdn-cgi/trace",
 	Options:     core.DefaultOptions,
+}
+
+// Target is one address the 测速 setting offers by name: a URL that answers
+// 204 at once is what a latency test wants, and one at home is what a node's
+// reach into this country is judged by.
+type Target struct {
+	Name string
+	URL  string
+}
+
+// TestURLs are the addresses worth naming. Any other http(s) address works
+// too: these are only the ones people ask for.
+var TestURLs = []Target{
+	{"Google 204", "https://www.gstatic.com/generate_204"},
+	{"Cloudflare 204", "https://cp.cloudflare.com/generate_204"},
+	{"GitHub", "https://github.com"},
+	{"百度", "https://www.baidu.com"},
+}
+
+// IPInfoURLs are the address services the 出口 IP 质量检测 setting offers by
+// name: each answers about an address with its network's name and, where it
+// says, whether that network is a hosting provider's. {ip} is where the
+// address goes; a URL without it gets the address appended.
+var IPInfoURLs = []Target{
+	{"ip-api.com", "http://ip-api.com/json/{ip}?fields=status,countryCode,isp,org,as,hosting,proxy,mobile,query"},
+	{"ipwho.is", "https://ipwho.is/{ip}"},
+	{"ip.sb", "https://api.ip.sb/geoip/{ip}"},
+	{"ipapi.co", "https://ipapi.co/{ip}/json/"},
 }
 
 type Store struct {
@@ -150,6 +189,9 @@ func Open(dir string) (*Store, error) {
 	}
 	if st.s.TestURL == "" {
 		st.s.TestURL = Defaults.TestURL
+	}
+	if st.s.LocateURL == "" {
+		st.s.LocateURL = Defaults.LocateURL
 	}
 	if st.s.LogLevel == "" {
 		st.s.LogLevel = Defaults.LogLevel
@@ -221,7 +263,7 @@ func (st *Store) Update(fn func(*Settings)) (Settings, error) {
 func (s *Settings) ResetCore() {
 	d := Defaults.Clone()
 	keep := s.Options
-	s.LogLevel, s.TestURL, s.Bypass, s.Options = d.LogLevel, d.TestURL, d.Bypass, d.Options
+	s.LogLevel, s.TestURL, s.LocateURL, s.Bypass, s.Options = d.LogLevel, d.TestURL, d.LocateURL, d.Bypass, d.Options
 	s.RouteTargets = nil
 	s.HTTPPort, s.SocksPort, s.Authentication, s.LanAllowedIPs = keep.HTTPPort, keep.SocksPort, keep.Authentication, keep.LanAllowedIPs
 	s.ExtController, s.ExtSecret = keep.ExtController, keep.ExtSecret
@@ -255,6 +297,11 @@ func (s Settings) Validate() error {
 	}
 	if u, err := url.Parse(s.TestURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return errors.New(i18n.T("测速地址要是 http 或 https 链接", "The test URL must be an http or https link"))
+	}
+	if s.LocateURL != "" { // empty asks the default
+		if u, err := url.Parse(s.LocateURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return errors.New(i18n.T("出口测试地址要是 http 或 https 链接", "The exit lookup URL must be an http or https link"))
+		}
 	}
 	for _, b := range s.Bypass {
 		if strings.ContainsAny(b, " \t,;") {

@@ -10,6 +10,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -1182,6 +1183,13 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 					ui.Row(c).Gap(6).AlignItems(ui.Center).MinWidth(0).Children(func() {
 						ui.Text(c, placeName(ex)).FontSize(13.5).TextColor(p.ink2).NoWrap().Shrink(0)
 						locTag(c, p, ex.Where.Source)
+						if q := ex.Quality; q != nil {
+							// What the address is, and how good it looks:
+							// the facts a site judges an exit by.
+							ui.Row(c).Gap(4).AlignItems(ui.Center).Shrink(0).Tooltip(qualityDetail(*q)).Children(func() {
+								qualityTags(c, p, *q, ex.Delay)
+							})
+						}
 						lead := "· "
 						if ex.Type != "" {
 							lead += ex.Type + " · "
@@ -1276,6 +1284,24 @@ func heroSize(c *ui.Context, s string, room float32, flag bool) float32 {
 	return heroSmall
 }
 
+// tunInstalling is what the interface says while TUN's core is prepared.
+// Windows asks for the administrator before the app starts, so nothing is
+// confirmed in a dialog while it runs.
+func tunInstalling() string {
+	if runtime.GOOS == "windows" {
+		return i18n.T("正在准备内核…", "Preparing the core…")
+	}
+	return i18n.T("正在安装，请在系统弹窗中确认…", "Installing; confirm in the system dialog…")
+}
+
+// tunFirstRun is what the interface says before TUN is turned on once.
+func tunFirstRun() string {
+	if runtime.GOOS == "windows" {
+		return i18n.T("未使用 · 首次开启需要以管理员身份运行 bowel", "Not in use · The first time, bowel must run as an administrator")
+	}
+	return i18n.T("未使用 · 第一次开启时，macOS 会请求管理员授权", "Not in use · The first time it's turned on, macOS asks for an administrator's authorization")
+}
+
 // entryChoices are the two ways of taking over, to press.
 func (u *UI) entryChoices(c *ui.Context, p *pal) {
 	u.choice(c, p, "sys", i18n.T("系统代理", "System proxy"), i18n.T("浏览器和大多数应用 · 推荐", "Browsers and most apps · Recommended"))
@@ -1304,7 +1330,7 @@ func (u *UI) choice(c *ui.Context, p *pal, id, word, desc string) {
 		if busy {
 			msg := i18n.T("正在接管…", "Taking over…")
 			if id == "tun" && u.snap.Takeover.Tun.Status == "install" {
-				msg = i18n.T("正在安装，请在系统弹窗中确认…", "Installing; confirm in the system dialog…")
+				msg = tunInstalling()
 			}
 			ui.Text(c, msg).FontSize(12).TextColor(p.mute)
 		} else {
@@ -2052,13 +2078,13 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 			status := i18n.T("未使用", "Not in use")
 			switch {
 			case u.pending("entry:tun") && t.Tun.Status == "install":
-				status = i18n.T("正在安装，请在系统弹窗中确认…", "Installing; confirm in the system dialog…")
+				status = tunInstalling()
 			case u.pending("entry:tun"):
 				status = i18n.T("正在应用…", "Applying…")
 			case t.Tun.Status == "on":
 				status = i18n.T("生效中", "Active")
 			case t.Tun.Status == "install":
-				status = i18n.T("未使用 · 第一次开启时，macOS 会请求管理员授权", "Not in use · The first time it's turned on, macOS asks for an administrator's authorization")
+				status = tunFirstRun()
 			case t.Tun.Status == "error":
 				status = t.Tun.Detail
 			}

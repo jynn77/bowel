@@ -1,4 +1,4 @@
-//go:build !darwin
+//go:build !darwin && !windows
 
 // Package tun installs the core so that it can open a TUN device.
 package tun
@@ -44,3 +44,6 @@ func InstallStep(src, dst string) (Step, error) { return nil, errUnsupported }
 
 // Admin is not supported outside macOS.
 func Admin(prompt string, steps ...Step) error { return errUnsupported }
+
+// Reset has nothing to do where TUN cannot run.
+func Reset() error { return nil }

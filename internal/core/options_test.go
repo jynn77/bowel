@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -41,7 +42,7 @@ func TestOptionsValidate(t *testing.T) {
 	if err := everything().Validate(); err != nil {
 		t.Fatalf("everything: %v", err)
 	}
-	for name, fn := range map[string]func(*Options){
+	cases := map[string]func(*Options){
 		"http port":         func(o *Options) { o.HTTPPort = 70000 },
 		"auth":              func(o *Options) { o.Authentication = []string{"nopassword"} },
 		"lan ips":           func(o *Options) { o.LanAllowedIPs = []string{"192.168.1.1"} },
@@ -57,11 +58,15 @@ func TestOptionsValidate(t *testing.T) {
 		"policy":            func(o *Options) { o.NameserverPolicy = []string{"geosite:cn"} },
 		"fake-ip range":     func(o *Options) { o.FakeIPRange = "198.18.0.1" },
 		"hosts":             func(o *Options) { o.Hosts = []string{"a.lan"} },
-		"device":            func(o *Options) { o.TunDevice = "tun0" },
 		"sniff port":        func(o *Options) { o.SniffTLS = []string{"443-80"} },
 		"geo url":           func(o *Options) { o.GeoIPURL = "ftp://x/geoip.dat" },
 		"controller":        func(o *Options) { o.ExtController = "9090" },
-	} {
+	}
+	if runtime.GOOS == "darwin" {
+		// Only macOS names the adapter, and only there must it be utun*.
+		cases["device"] = func(o *Options) { o.TunDevice = "tun0" }
+	}
+	for name, fn := range cases {
 		o := DefaultOptions.Clone()
 		fn(&o)
 		if o.Validate() == nil {
@@ -109,14 +114,23 @@ func TestEveryOptionPassesCore(t *testing.T) {
 			t.Fatal(err)
 		}
 		s := string(cfg)
-		for _, want := range []string{
+		want := []string{
 			"port: 17801", "socks-port: 17802", "- me:secret", "skip-auth-prefixes", "global-client-fingerprint: chrome",
 			"find-process-mode: strict", "keep-alive-interval: 30", "interval: 120", "tolerance: 50", "interval: 900",
 			"respect-rules: true", "geosite:cn:", "- 119.29.29.29", "router.lan: 192.168.1.1", "sniffer:", "8080-8880",
-			"geo-update-interval: 48", "external-controller: 127.0.0.1:19090", "secret: s3cret",
-		} {
-			if !strings.Contains(s, want) {
-				t.Errorf("tun %v: config lacks %q", tun, want)
+			"geo-update-interval: 48",
+		}
+		// The controller the manager asked for is the one in the config: the
+		// profile's own stays only where the manager uses a unix socket and
+		// leaves that key to it.
+		if m.TCPAddr() != "" {
+			want = append(want, "external-controller: "+m.TCPAddr(), "secret: "+m.ControllerFields()["secret"].(string))
+		} else {
+			want = append(want, "external-controller: 127.0.0.1:19090", "secret: s3cret")
+		}
+		for _, w := range want {
+			if !strings.Contains(s, w) {
+				t.Errorf("tun %v: config lacks %q", tun, w)
 			}
 		}
 		if tun && (!strings.Contains(s, "device: utun1024") || !strings.Contains(s, "mtu: 1500")) {

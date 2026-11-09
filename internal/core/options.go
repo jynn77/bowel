@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -297,7 +298,9 @@ func (o Options) Validate() error {
 	if !slices.Contains(TunStacks, o.TunStack) {
 		return fmt.Errorf(i18n.T("未知协议栈: %s", "Unknown stack: %s"), o.TunStack)
 	}
-	if o.TunDevice != "" && !strings.HasPrefix(o.TunDevice, "utun") {
+	// Only macOS asks for a name, and only there must it start with utun;
+	// elsewhere mihomo names the adapter, so a name would be refused.
+	if runtime.GOOS == "darwin" && o.TunDevice != "" && !strings.HasPrefix(o.TunDevice, "utun") {
 		return errors.New(i18n.T("macOS 的 TUN 网卡名要以 utun 开头, 如 utun1024", "On macOS the TUN device must start with utun, as utun1024"))
 	}
 

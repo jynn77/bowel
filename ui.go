@@ -11,6 +11,7 @@ import (
 	"embed"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/oboo/moho/internal/geo"
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/ipinfo"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
 )
@@ -596,6 +598,22 @@ func iconBtn(c *ui.Context, p *pal, glyph string, size float32, label string) ui
 	return b.Children(func() { ui.Text(c, glyph).FontSize(size).TextColor(col) })
 }
 
+// iconButton is iconBtn with a drawn mark: a square button, the icon in its
+// middle, and the words in the tooltip instead of on it.
+func iconButton(c *ui.Context, p *pal, svg *ui.SVG, label string) ui.Element {
+	b := ui.ButtonBase(c).Size(30, 30).Shrink(0).Radius(p.r(8)).Justify(ui.Center).AlignItems(ui.Center).
+		Label(label).Tooltip(label)
+	col := p.ink2
+	if b.Pressed() {
+		b.Background(p.hair)
+		col = p.ink
+	} else if b.Hovered() {
+		b.Background(p.hair2)
+		col = p.ink
+	}
+	return b.Children(func() { ui.Icon(c, svg).Size(18, 18).TextColor(col) })
+}
+
 // swatch is a route's color mark.
 func swatch(c *ui.Context, col ui.Color, size float32) ui.Element {
 	return ui.Box(c).Size(size, size).Radius(2).Background(col)
@@ -819,6 +837,14 @@ func placeName(n NodeView) string {
 	return i18n.T("位置未知", "Unknown location")
 }
 
+// tag is a small label saying one fact about what it sits beside.
+func tag(c *ui.Context, p *pal, text string, col ui.Color) {
+	// A tag never breaks: squeezed, its letters would stack one a line.
+	ui.Box(c).Padding(1, 6).Radius(p.r(4)).Background(col.Alpha(.12)).Shrink(0).Children(func() {
+		ui.Text(c, text).FontSize(10.5).FontWeight(600).TextColor(col).NoWrap()
+	})
+}
+
 // locTag is the small label saying how a place is known.
 func locTag(c *ui.Context, p *pal, src string) {
 	text, col := i18n.T("未知", "Unknown"), p.warn
@@ -830,10 +856,44 @@ func locTag(c *ui.Context, p *pal, src string) {
 	case "locating":
 		text, col = i18n.T("定位中", "Locating"), p.warn
 	}
-	// A tag never breaks: squeezed, its letters would stack one a line.
-	ui.Box(c).Padding(1, 6).Radius(p.r(4)).Background(col.Alpha(.12)).Shrink(0).Children(func() {
-		ui.Text(c, text).FontSize(10.5).FontWeight(600).TextColor(col).NoWrap()
-	})
+	tag(c, p, text, col)
+}
+
+// qualityTags are what the address services said about an exit: the kind of
+// network its address belongs to, and how good it looks with the node's
+// latency in mind.
+func qualityTags(c *ui.Context, p *pal, q ipinfo.Quality, delay int) {
+	switch q.Kind {
+	case ipinfo.Data:
+		tag(c, p, i18n.T("机房", "Data centre"), p.mute)
+	case ipinfo.Home:
+		tag(c, p, i18n.T("家宽", "Home line"), p.ink2)
+	}
+	text, col := i18n.T("优秀", "Excellent"), p.good
+	switch q.Grade(delay) {
+	case "good":
+		text, col = i18n.T("良好", "Good"), p.ink2
+	case "fair":
+		text, col = i18n.T("一般", "Fair"), p.warn
+	case "poor":
+		text, col = i18n.T("较差", "Poor"), p.warn
+	}
+	tag(c, p, text, col)
+}
+
+// qualityDetail is what a quality label hides: who owns the address, and
+// which address it is.
+func qualityDetail(q ipinfo.Quality) string {
+	parts := []string{}
+	for _, s := range []string{q.ISP, q.Org, q.ASN, q.IP} {
+		if s = strings.TrimSpace(s); s != "" && !slices.Contains(parts, s) {
+			parts = append(parts, s)
+		}
+	}
+	if q.Proxy {
+		parts = append(parts, i18n.T("被标记为代理/VPN", "Listed as a proxy or VPN"))
+	}
+	return strings.Join(parts, " · ")
 }
 
 var _ = math.Pi

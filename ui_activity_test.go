@@ -380,6 +380,25 @@ func TestActivityApplyKeepsLast(t *testing.T) {
 	}
 }
 
+func TestActivityClearLogs(t *testing.T) {
+	var a activityUI
+	a.apply(nil, []LogLine{{Seq: 1, Text: "a"}, {Seq: 2, Text: "b"}})
+	a.clearLogs()
+	if len(a.logs) != 0 || a.lastSeq != 2 {
+		t.Fatalf("after clear: %d lines, last %d", len(a.logs), a.lastSeq)
+	}
+	// The poller asks for what comes after lastSeq, so a fetch that still
+	// carries the cleared lines must not put them back.
+	a.apply(nil, []LogLine{{Seq: 2, Text: "b"}})
+	if len(a.logs) != 0 {
+		t.Errorf("cleared lines came back: %+v", a.logs)
+	}
+	a.apply(nil, []LogLine{{Seq: 3, Text: "c"}})
+	if len(a.logs) != 1 || a.logs[0].Seq != 3 {
+		t.Errorf("new lines after a clear: %+v", a.logs)
+	}
+}
+
 func TestActivityPoller(t *testing.T) {
 	var mu sync.Mutex // the main thread
 	var a activityUI
@@ -453,4 +472,55 @@ func findPart(tt *ui.Tester, s string) (ui.Rect, bool) {
 		}
 	}
 	return ui.Rect{}, false
+}
+
+// The bin drops what the page lists. What has ended goes at once; what is
+// still running needs a second click, since hiding it hides something live.
+func TestActivityClearList(t *testing.T) {
+	u := actUI()
+	a := &u.act
+
+	// 失败: gone on the first click.
+	a.status = slices.Index(actStatuses, "failed")
+	if len(u.actFiltered()) == 0 {
+		t.Fatal("no failed connections to clear")
+	}
+	u.tapClear()
+	if n := len(u.actFiltered()); n != 0 {
+		t.Fatalf("%d failed connections left after one click", n)
+	}
+	// And they stay gone when the poller brings them back.
+	u.act.apply(actFixtureConns(), nil)
+	if n := len(u.actFiltered()); n != 0 {
+		t.Fatalf("%d failed connections came back with the next poll", n)
+	}
+
+	// 活跃: the first click only arms.
+	a.status = slices.Index(actStatuses, "active")
+	live := len(u.actFiltered())
+	if live == 0 {
+		t.Fatal("no active connections to clear")
+	}
+	u.tapClear()
+	if !a.clearArmed() {
+		t.Fatal("clearing live connections was not armed")
+	}
+	if n := len(u.actFiltered()); n != live {
+		t.Fatalf("%d of %d active connections went without a confirmation", live-n, live)
+	}
+	u.tapClear()
+	if a.clearArmed() {
+		t.Fatal("the second click left it armed")
+	}
+	if n := len(u.actFiltered()); n != 0 {
+		t.Fatalf("%d active connections left after the confirmation", n)
+	}
+
+	// The log tab still clears lines, and asks nothing.
+	a.status = slices.Index(actStatuses, "active")
+	a.logTab = true
+	u.tapClear()
+	if len(a.logs) != 0 {
+		t.Fatalf("%d log lines left after clearing", len(a.logs))
+	}
 }

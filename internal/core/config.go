@@ -310,11 +310,22 @@ func BuildConfig(in Input) ([]byte, error) {
 	if gateway {
 		o.DNSMode = "fake-ip"
 	}
+	// The core always gets a resolver of its own, TUN or no TUN. It needs one
+	// for the nodes' own names, not only for the traffic: a node whose server
+	// is a domain cannot be dialled without it, and VLESS' ECH asks DNS for
+	// its config before the TLS handshake even starts. With TUN off and the
+	// built-in DNS switch off, nothing else gave it one, and exactly those
+	// nodes — and nothing else — failed to test or connect.
 	policy := dnsPolicy(o.NameserverPolicy, dev.Policy)
-	switch {
-	case in.Tun || o.DNS:
+	{
+		mode := o.DNSMode
+		if !in.Tun && !gateway && mode == "fake-ip" {
+			// No tunnel to map fake addresses back from: answer with real
+			// ones, as the system resolver did.
+			mode = "redir-host"
+		}
 		dns := map[string]any{
-			"enable": true, "ipv6": o.IPv6, "enhanced-mode": o.DNSMode,
+			"enable": true, "ipv6": o.IPv6, "enhanced-mode": mode,
 			"default-nameserver": o.DefaultNameservers,
 			"nameserver":         o.Nameservers,
 			"use-hosts":          o.UseHosts,
@@ -322,7 +333,7 @@ func BuildConfig(in Input) ([]byte, error) {
 			"prefer-h3":          o.PreferH3,
 			"respect-rules":      o.RespectRules,
 		}
-		if o.DNSMode == "fake-ip" {
+		if mode == "fake-ip" {
 			dns["fake-ip-range"] = o.FakeIPRange
 			dns["fake-ip-filter"] = devnet.Merge(o.FakeIPFilter, dev.FakeIPFilter)
 		}
@@ -343,18 +354,12 @@ func BuildConfig(in Input) ([]byte, error) {
 		switch {
 		case gateway:
 			dns["listen"] = "0.0.0.0:53"
-		case in.Tun:
+		case in.Tun || o.DNS:
+			// TUN's own resolver, and what the built-in DNS switch asks for
+			// without it: an address on this machine for apps to point at.
 			dns["listen"] = fmt.Sprintf("127.0.0.1:%d", LocalDNSPort)
 		}
 		cfg["dns"] = dns
-	case len(dev.Policy) > 0:
-		// Without a resolver of its own the core asks the system's servers
-		// directly, which knows nothing of split DNS: this resolver is the
-		// system's too, but for the domains that have servers of their own.
-		cfg["dns"] = map[string]any{
-			"enable": true, "ipv6": o.IPv6, "enhanced-mode": "normal", "nameserver": []string{"system"},
-			"use-hosts": o.UseHosts, "use-system-hosts": o.UseSystemHosts, "nameserver-policy": policy,
-		}
 	}
 	return yaml.Marshal(cfg)
 }

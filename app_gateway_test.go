@@ -197,3 +197,28 @@ func TestGatewayView(t *testing.T) {
 		t.Errorf("on: %+v", g)
 	}
 }
+
+// Turning TUN off puts back what turning it on changed outside the config:
+// the core it ran is the bundled one again, and what TUN left on the system
+// is taken back.
+func TestTunOffPutsTheSystemBack(t *testing.T) {
+	installed, dialogs := true, 0
+	fakeTun(t, &installed, &dialogs)
+	resets := 0
+	saved := osTunReset
+	osTunReset = func() error { resets++; return nil }
+	t.Cleanup(func() { osTunReset = saved })
+
+	a := gatewayApp(t, &gwFake{})
+	a.core.SetBin(a.tunBin)
+	a.tunOff()
+	if resets != 1 {
+		t.Fatalf("the TUN leftovers were taken back %d times, want 1", resets)
+	}
+	if got := a.core.Bin; got != a.coreBin {
+		t.Fatalf("the core after TUN is %q, want the bundled %q", got, a.coreBin)
+	}
+	if gate := a.settings.Get().Tun; gate {
+		t.Fatal("TUN was turned on by turning it off")
+	}
+}

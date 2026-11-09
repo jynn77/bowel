@@ -34,6 +34,7 @@ import (
 	"github.com/oboo/moho/internal/gateway"
 	"github.com/oboo/moho/internal/geo"
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/ipinfo"
 	"github.com/oboo/moho/internal/locate"
 	"github.com/oboo/moho/internal/mihomo"
 	"github.com/oboo/moho/internal/monitor"
@@ -53,6 +54,7 @@ type App struct {
 	core      *core.Manager
 	mon       *monitor.Monitor
 	loc       *locate.Locator
+	qual      *ipinfo.Store
 	http      *http.Client
 	coreBin   string // the bundled core
 	tunBin    string // the setuid copy TUN runs
@@ -71,6 +73,7 @@ type App struct {
 	mu          sync.Mutex
 	pending     map[string]bool
 	locating    map[string]bool
+	qualifying  bool // a quality lookup is under way: one at a time
 	sys         sysproxy.Status
 	proxies     map[string]mihomo.Proxy
 	provNodes   map[string][]string // provider id → node names, in the provider's order
@@ -151,6 +154,7 @@ func newApp() (*App, error) {
 		dataDir: data, settings: st, providers: ps, core: cm,
 		mon:  monitor.New(filepath.Join(data, "stats.json")),
 		loc:  locate.New(filepath.Join(data, "locations.json")),
+		qual: ipinfo.Open(filepath.Join(data, "ipinfo.json")),
 		http: &http.Client{Transport: netproxy.Transport()}, coreBin: bin, tunBin: tunBin, probePort: probe,
 		pending: map[string]bool{}, locating: map[string]bool{}, proxies: map[string]mihomo.Proxy{},
 		provNodes: map[string][]string{}, lastNode: map[string]string{}, routeBytes: map[string]int64{},
@@ -221,6 +225,12 @@ func (a *App) start() {
 	a.openWindow()
 	a.setupTray()
 	a.copyGeo()
+	if s := a.settings.Get(); !s.Tun || !a.takeoverOn(s) {
+		// TUN is not going to run this time: anything it left on the system
+		// from a run that ended badly is in the way of the network, and the
+		// core has not started to need it yet.
+		a.repairTun()
+	}
 	go func() {
 		a.detectDev(2 * time.Second)
 		if err := a.applyConfig(); err != nil {
@@ -431,6 +441,15 @@ func (a *App) refresh() {
 			}
 		}
 	}
+	if a.settings.Get().IPQuality {
+		// Turned on (or the exit changed) while the app runs: what the
+		// address is gets asked within a frame or two, not at the next
+		// quarter-hour look.
+		a.mu.Lock()
+		px := a.proxies
+		a.mu.Unlock()
+		a.qualitySoon(currentNode(px, a.route(routes.Default)))
+	}
 	a.emit()
 }
 
@@ -453,6 +472,7 @@ func (a *App) onCoreStatus(s core.Status) {
 			a.applySystemProxy()
 			a.refresh()
 			a.locateExits(true)
+			a.youSoon() // and once more, with the core settled
 		}()
 	}
 	a.emit()
@@ -465,24 +485,7 @@ func (a *App) takeoverOn(s settings.Settings) bool { return !s.Paused && (s.Syst
 // applyConfig rebuilds the runtime config and makes the core use it.
 func (a *App) applyConfig() error {
 	s := a.settings.Get()
-	var refs []core.ProviderRef
-	for _, p := range a.providers.List() {
-		if p.Enabled {
-			refs = append(refs, core.ProviderRef{ID: p.ID, Path: a.providers.Path(p.ID)})
-		}
-	}
-	all := a.routes()
-	scopes, orders := a.nodeLists(all)
-	err := a.applyDev(s, func(dev devnet.Overlay) ([]byte, error) {
-		return core.BuildConfig(core.Input{
-			Providers: refs, Routes: all, UserRules: routes.Active(all, s.Rules), Scopes: scopes, Orders: orders, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
-			Tun:      s.Tun && a.takeoverOn(s) && tun.Installed(a.tunBin),
-			Gateway:  a.gatewayOn(s),
-			LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: a.probePort, Controller: a.core.ControllerFields(),
-			Options: s.Options, Dev: dev,
-		})
-	})
-	if err != nil {
+	if err := a.applyDev(s, func(dev devnet.Overlay) ([]byte, error) { return a.buildCore(s, dev) }); err != nil {
 		a.emit()
 		return err
 	}
@@ -498,6 +501,31 @@ func (a *App) applyConfig() error {
 	a.syncGateway()
 	a.refresh()
 	return nil
+}
+
+// buildConfig is the runtime config these settings ask for, without applying
+// it: what TUN is taken down with is the same config with TUN off.
+func (a *App) buildConfig(s settings.Settings) ([]byte, error) {
+	return a.buildCore(s, overlayOf(s, a.devEnv()))
+}
+
+// buildCore is that config, for one developer-network overlay.
+func (a *App) buildCore(s settings.Settings, dev devnet.Overlay) ([]byte, error) {
+	var refs []core.ProviderRef
+	for _, p := range a.providers.List() {
+		if p.Enabled {
+			refs = append(refs, core.ProviderRef{ID: p.ID, Path: a.providers.Path(p.ID)})
+		}
+	}
+	all := a.routes()
+	scopes, orders := a.nodeLists(all)
+	return core.BuildConfig(core.Input{
+		Providers: refs, Routes: all, UserRules: routes.Active(all, s.Rules), Scopes: scopes, Orders: orders, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
+		Tun:      s.Tun && a.takeoverOn(s) && tun.Installed(a.tunBin),
+		Gateway:  a.gatewayOn(s),
+		LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: a.probePort, Controller: a.core.ControllerFields(),
+		Options: s.Options, Dev: dev,
+	})
 }
 
 // pointGlobal makes global mode use the default route.
@@ -685,14 +713,85 @@ func (a *App) setTun(on bool) error {
 	}); err != nil {
 		return err
 	}
-	return a.afterTakeover()
+	err := a.afterTakeover()
+	if !on {
+		a.tunOff()
+	}
+	return err
+}
+
+// tunOff puts back what turning TUN on changed outside the config: the core
+// it runs, which was the copy TUN's privilege needs, and what TUN left on
+// the system once it stopped using it.
+func (a *App) tunOff() {
+	a.core.SetBin(a.coreBin)
+	a.repairTun()
+}
+
+// osTunReset takes back what TUN left on the system. Tests replace it.
+var osTunReset = tun.Reset
+
+// repairTun takes back what TUN left behind once it is off: the routes that
+// send traffic into an adapter with no session, and the resolver cache its
+// fake IPs filled. The core does this itself when it closes TUN, but a core
+// that was killed cannot, and on Windows every stop is a kill.
+func (a *App) repairTun() {
+	if err := osTunReset(); err != nil {
+		log.Println("tun:", err)
+	}
+}
+
+// tunOffWait is how long the core is given to close TUN before the system is
+// asked to do it: closing it is the core's work, and it takes a moment.
+const tunOffWait = 1500 * time.Millisecond
+
+// closeTun turns TUN off in the running core, before it is stopped for good.
+// The core's own close is what ends the session, takes the adapter and its
+// routes away and flushes the fake IPs; a killed core leaves all three, and
+// a default route into a tunnel that is gone leaves the machine without a
+// network.
+func (a *App) closeTun() {
+	if _, err := a.core.Client(); err != nil {
+		return // nothing running to take it down
+	}
+	s := a.settings.Get()
+	s.Tun, s.Gateway = false, false
+	cfg, err := a.buildConfig(s)
+	if err != nil {
+		log.Println("tun:", err)
+		return
+	}
+	if err := a.core.Apply(cfg); err != nil {
+		log.Println("tun:", err)
+		return
+	}
+	time.Sleep(tunOffWait) // the route table follows within it
 }
 
 func (a *App) afterTakeover() error {
 	err := a.applyConfig()
 	a.applySystemProxy()
 	a.refresh()
+	a.youSoon()
 	return err
+}
+
+// tunSettle is how long a change of takeover is given before the user's own
+// place is measured again: for a moment after TUN comes up, the core's own
+// outbound is not yet bound to the interface that keeps it out of the tunnel,
+// and a probe taken then goes through the tunnel and comes back with the
+// exit's place — which is what the map would then show as "you".
+const tunSettle = 6 * time.Second
+
+// youSoon measures the user's own place again once the change has settled.
+func (a *App) youSoon() {
+	go func() {
+		time.Sleep(tunSettle)
+		if a.isQuitting() {
+			return
+		}
+		_, _ = a.probeErr(context.Background(), "DIRECT")
+	}()
 }
 
 func (a *App) setLan(on bool) error {
@@ -997,6 +1096,7 @@ func (a *App) locate(ctx context.Context, node string) error {
 // probe measures a node's exit in the background, showing "locating".
 func (a *App) probe(node string) {
 	if r := a.loc.Guess(node, display(node)); r.Source == "probe" {
+		a.qualitySoon(node) // its address is known; what it is may not be
 		return
 	}
 	_, _ = a.probeErr(context.Background(), node)
@@ -1007,6 +1107,7 @@ func (a *App) probeErr(ctx context.Context, node string) (locate.Result, error) 
 	if err != nil {
 		return locate.Result{}, err
 	}
+	a.loc.SetSource(a.settings.Get().LocateURL)
 	a.mu.Lock()
 	a.locating[node] = true
 	a.mu.Unlock()
@@ -1019,12 +1120,66 @@ func (a *App) probeErr(ctx context.Context, node string) (locate.Result, error) 
 	}
 	a.mu.Unlock()
 	a.emit()
+	if err == nil {
+		a.qualitySoon(node)
+	}
 	return r, err
 }
 
+// qualitySoon asks the address services about the node's exit, in the
+// background, one lookup at a time: what an address is changes slowly, and
+// the answers are kept in a file.
+func (a *App) qualitySoon(node string) {
+	if node == "" || node == "DIRECT" {
+		return // the user's own address is not the exit's
+	}
+	st := a.settings.Get()
+	if !st.IPQuality {
+		return // the setting is off: nothing is asked about any address
+	}
+	a.qual.SetSource(st.IPInfoURL) // the service the settings name, now
+	ip := a.loc.Guess(node, display(node)).IP
+	if ip == "" {
+		return // no probe has said where it exits yet
+	}
+	if _, ok := a.qual.Get(ip); ok {
+		return
+	}
+	a.mu.Lock()
+	if a.qualifying {
+		a.mu.Unlock()
+		return
+	}
+	a.qualifying = true
+	a.mu.Unlock()
+	go func() {
+		defer func() {
+			a.mu.Lock()
+			a.qualifying = false
+			a.mu.Unlock()
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+		defer cancel()
+		if _, err := a.qual.Lookup(ctx, ip); err != nil {
+			log.Println("ipinfo:", err)
+			return
+		}
+		a.emit()
+	}()
+}
+
+// youEvery is how often the user's own place is measured again. It is worth
+// repeating: with TUN in effect a wrong reading (taken while the tunnel was
+// still settling) stays wrong for as long as it is trusted, and the map puts
+// "you" wherever it says.
+const youEvery = 10 * time.Minute
+
 // locateExits measures the user's own place and the nodes routes use now.
 func (a *App) locateExits(force bool) {
-	if force || a.you == nil {
+	a.mu.Lock()
+	you := a.you
+	a.mu.Unlock()
+	if force || you == nil || time.Since(you.At) > youEvery {
 		_, _ = a.probeErr(context.Background(), "DIRECT")
 	}
 	a.mu.Lock()
@@ -1044,6 +1199,9 @@ func (a *App) locateExits(force bool) {
 			}
 		}
 	}
+	// The exit's address may be known from a cached probe, with nothing said
+	// about it yet.
+	a.qualitySoon(currentNode(px, a.route(routes.Default)))
 }
 
 // currentNode is the node a route uses now, following the groups its
@@ -1624,9 +1782,19 @@ func (a *App) snapshot() Snapshot {
 
 	// Nodes, in their providers' order.
 	mains := mainURLs(s)
+	// What the quality answers are checked against is the service the
+	// settings name now: another one's word is asked again, not shown.
+	a.qual.SetSource(s.IPInfoURL)
+	addrs := map[string]map[string]string{}
 	view := func(name string) NodeView {
 		p := px[name]
 		v := NodeView{Name: name, Display: a.label(provNodes, name), Provider: providerOf(name), Type: p.Type, UDP: p.UDP, History: []int{}}
+		if id := v.Provider; id != "" {
+			if _, ok := addrs[id]; !ok {
+				addrs[id] = a.providers.Addrs(id)
+			}
+			v.Address = addrs[id][display(name)]
+		}
 		v.Routes = make(map[string]NodeTest, len(mains))
 		for id, u := range mains {
 			v.Routes[id] = nodeTest(p.HistoryOf(u))
@@ -1640,6 +1808,9 @@ func (a *App) snapshot() Snapshot {
 		v.Where = located(a.loc.Guess(name, display(name)))
 		if locating[name] {
 			v.Where.Source = "locating"
+		}
+		if q, ok := a.qual.Get(v.Where.IP); ok && s.IPQuality {
+			v.Quality = &q
 		}
 		return v
 	}

@@ -7,6 +7,9 @@ mygo_windows_*.syso
 /resources/geo/
 /resources/licenses/
 /moho
+
+/build-test/
+
 # What mobile/bridge/build.sh and mobile/android/build.sh make. Tunnel.xcframework
 # alone is over GitHub's size limit; the release workflow builds them all.
 /mobile/flutter/ios/Frameworks/

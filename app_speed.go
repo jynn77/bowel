@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"net"
+	"runtime"
 	"slices"
 	"sync"
 	"time"
@@ -179,7 +180,11 @@ func (a *App) pingNodes(names []string) {
 	iface := ""
 	tunOn := a.takeoverOn(st) && st.Tun && tun.Installed(a.tunBin)
 	if tunOn {
-		if iface = gateway.PrimaryInterface(); iface == "" {
+		// ping can be bound to an interface on macOS only. Windows leaves
+		// it to the routing table, which the TUN now owns, so a TUN there
+		// means measuring through the node or not at all: the second, when
+		// the TUN drops ICMP, leaves the column empty rather than wrong.
+		if iface = gateway.PrimaryInterface(); iface == "" && runtime.GOOS != "windows" {
 			return
 		}
 	}

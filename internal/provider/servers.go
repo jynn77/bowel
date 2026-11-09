@@ -22,6 +22,37 @@ func (s *Store) Servers(id string) map[string]string {
 	return parseServers(b)
 }
 
+// Addrs maps a provider's node names to their servers' addresses, host:port
+// as the content gives them: what people paste into another client, and what
+// names a node's server when its name doesn't. Nodes it can't read are
+// absent. The parse is kept by the file's identity, since the interface asks
+// for it every snapshot.
+func (s *Store) Addrs(id string) map[string]string {
+	p := s.Path(id)
+	fi, err := os.Stat(p)
+	if err != nil {
+		return nil
+	}
+	s.mu.Lock()
+	e, cached := s.addrs[id]
+	s.mu.Unlock()
+	if cached && e.size == fi.Size() && e.mod.Equal(fi.ModTime()) {
+		return e.by
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return nil
+	}
+	by := parseAddrs(b)
+	s.mu.Lock()
+	if s.addrs == nil {
+		s.addrs = map[string]addrEntry{}
+	}
+	s.addrs[id] = addrEntry{size: fi.Size(), mod: fi.ModTime(), by: by}
+	s.mu.Unlock()
+	return by
+}
+
 // Names are the names of provider id's nodes as its file has them, those
 // without a server of their own (direct, WireGuard's peers) too.
 func (s *Store) Names(id string) []string {
@@ -54,7 +85,7 @@ func parseNames(data []byte) []string {
 }
 
 // parseServers reads what mihomo reads: Clash YAML, or node links, perhaps
-// in Base64.
+// in Base64. Only the hosts: a test pings them.
 func parseServers(data []byte) map[string]string {
 	var doc struct {
 		Proxies []struct {
@@ -78,11 +109,71 @@ func parseServers(data []byte) map[string]string {
 		}
 	}
 	for _, line := range strings.Split(text, "\n") {
-		if name, host, ok := parseLink(strings.TrimSpace(line)); ok {
+		if name, host, _, ok := parseLink(strings.TrimSpace(line)); ok {
 			out[name] = host
 		}
 	}
 	return out
+}
+
+// parseAddrs is parseServers with the ports kept.
+func parseAddrs(data []byte) map[string]string {
+	var doc struct {
+		Proxies []struct {
+			Name   string `yaml:"name"`
+			Server string `yaml:"server"`
+			// Port is a number, or a string when it is a hopping range.
+			Port any `yaml:"port"`
+		} `yaml:"proxies"`
+	}
+	out := map[string]string{}
+	if yaml.Unmarshal(data, &doc) == nil && len(doc.Proxies) > 0 {
+		for _, p := range doc.Proxies {
+			if p.Server != "" {
+				out[p.Name] = hostPort(p.Server, portOf(p.Port))
+			}
+		}
+		return out
+	}
+	text := strings.TrimSpace(string(data))
+	if !strings.Contains(text, "://") {
+		if b := decodeB64(text); b != nil {
+			text = string(b)
+		}
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if name, host, port, ok := parseLink(strings.TrimSpace(line)); ok {
+			out[name] = hostPort(host, port)
+		}
+	}
+	return out
+}
+
+// portOf is a YAML port as an address' port.
+func portOf(v any) string {
+	switch t := v.(type) {
+	case int:
+		return strconv.Itoa(t)
+	case int64:
+		return strconv.FormatInt(t, 10)
+	case float64:
+		return strconv.Itoa(int(t))
+	case string:
+		return strings.TrimSpace(t)
+	}
+	return ""
+}
+
+// hostPort joins a host and its port as an address: [v6]:port, host:port, or
+// the host alone when the content left the port to the node's type.
+func hostPort(host, port string) string {
+	if port == "" {
+		return host
+	}
+	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		return "[" + host + "]:" + port
+	}
+	return host + ":" + port
 }
 
 func decodeB64(s string) []byte {
@@ -95,10 +186,10 @@ func decodeB64(s string) []byte {
 	return nil
 }
 
-func parseLink(line string) (string, string, bool) {
+func parseLink(line string) (string, string, string, bool) {
 	scheme, rest, ok := strings.Cut(line, "://")
 	if !ok {
-		return "", "", false
+		return "", "", "", false
 	}
 	if strings.EqualFold(scheme, "vmess") {
 		return parseVmess(rest)
@@ -114,37 +205,38 @@ func parseLink(line string) (string, string, bool) {
 		// ss://<base64 of method:password@host:port>
 		b := decodeB64(rest)
 		if b == nil {
-			return "", "", false
+			return "", "", "", false
 		}
 		rest = string(b)
 	}
-	host := authorityHost(rest[strings.LastIndex(rest, "@")+1:])
-	return name, host, host != ""
+	host, port, ok := authority(rest[strings.LastIndex(rest, "@")+1:])
+	return name, host, port, ok
 }
 
-func parseVmess(b64 string) (string, string, bool) {
+func parseVmess(b64 string) (string, string, string, bool) {
 	var v struct {
 		Name string `json:"ps"`
 		Host string `json:"add"`
+		Port any    `json:"port"`
 	}
 	if b := decodeB64(b64); b == nil || json.Unmarshal(b, &v) != nil {
-		return "", "", false
+		return "", "", "", false
 	}
-	return v.Name, v.Host, v.Host != ""
+	return v.Name, v.Host, portOf(v.Port), v.Host != ""
 }
 
-// authorityHost is the host of host:port, "" if that isn't what s is. The
-// port may be a hopping range such as "443,20000-30000".
-func authorityHost(s string) string {
+// authority is the host and port of host:port, ok if that isn't what s is.
+// The port may be a hopping range such as "443,20000-30000".
+func authority(s string) (string, string, bool) {
 	i := strings.LastIndex(s, ":")
 	if i < 0 || !validPort(s[i+1:]) {
-		return ""
+		return "", "", false
 	}
 	host := strings.Trim(s[:i], "[]")
 	if net.ParseIP(host) == nil && strings.Contains(host, ":") {
-		return ""
+		return "", "", false
 	}
-	return host
+	return host, strings.TrimSpace(s[i+1:]), true
 }
 
 func validPort(s string) bool {

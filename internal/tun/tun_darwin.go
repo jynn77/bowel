@@ -18,6 +18,11 @@ import (
 	"github.com/oboo/moho/internal/i18n"
 )
 
+// Reset has nothing to do here: this Mac's utun device, its address and the
+// routes sing-tun added all go when the core closes TUN, and the core is
+// always asked to close it (SIGTERM, which it answers).
+func Reset() error { return nil }
+
 // ErrCanceled is returned by Install and Uninstall when the user dismissed
 // the administrator prompt.
 var ErrCanceled error = canceled{}

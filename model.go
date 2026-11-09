@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/oboo/moho/internal/gateway"
+	"github.com/oboo/moho/internal/ipinfo"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
 )
@@ -168,13 +169,19 @@ type NodeView struct {
 	Display  string `json:"display"`
 	Provider string `json:"provider"` // provider id
 	Type     string `json:"type"`
-	UDP      bool   `json:"udp"`
+	// Address is the node's server, host:port as its provider's content has
+	// it: what the subscription said, not a lookup.
+	Address string `json:"address,omitempty"`
+	UDP     bool   `json:"udp"`
 	// Delay of the last test of the default route's main target, in ms; 0
 	// failed or untested (see Tested). On has them for another route.
 	Delay   int     `json:"delay"`
 	Tested  bool    `json:"tested"`
 	History []int   `json:"history"`
 	Where   Located `json:"where"`
+	// Quality is what the address services said about the exit: a data
+	// centre's or a home line, and how clean it looks. Nil until asked.
+	Quality *ipinfo.Quality `json:"quality,omitempty"`
 	// Ping is how long the node's server takes to answer this computer, in
 	// ms; 0 no answer so far.
 	Ping int `json:"ping"`

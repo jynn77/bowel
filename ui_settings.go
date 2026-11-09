@@ -22,6 +22,7 @@ import (
 
 	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/locate"
 	"github.com/oboo/moho/internal/settings"
 )
 
@@ -789,11 +790,81 @@ func (u *UI) coreSection(c *ui.Context, p *pal, s settings.Settings) {
 		func(s *settings.Settings, on bool) { s.DisableKeepAlive = on })
 
 	optHeading(c, p, i18n.T("测速", "Testing"))
+	u.optSwitch(c, p, "ipquality", i18n.T("出口 IP 质量检测", "Check the exit's address"), i18n.T("查出口地址属于机房还是家宽、有没有被标记成代理，并在主界面的出口上给出评分。开启后会把出口 IP 发给下面这个地址服务查询", "Look the exit's address up: a data centre's or a home line, whether it is listed as a proxy, and a grade beside the main screen's exit. Turning it on sends that address to the service below"), s.IPQuality,
+		func(s *settings.Settings, on bool) { s.IPQuality = on })
+	optWide(c, p, i18n.T("质量检测地址", "Address lookup URL"), i18n.T("回答「这个 IP 是什么」的服务，用 {ip} 表示要查的地址。要能给出网络名和 ASN，ip-api 还会说是不是机房", "The service that answers what an address is, with {ip} where the address goes. It must name the network and its ASN; ip-api also says whether it is a data centre"), func() {
+		// A preset is a service picked by name, which fills the address
+		// below; any other address is typed, and the picker then reads
+		// 自定义. Both controls write the one setting. Empty is the first
+		// preset: what a lookup asks by default.
+		cur := s.IPInfoURL
+		if cur == "" {
+			cur = settings.IPInfoURLs[0].URL
+		}
+		known := false
+		var values, labels []string
+		for _, t := range settings.IPInfoURLs {
+			if t.URL == cur {
+				known = true
+			}
+		}
+		if !known {
+			values, labels = append(values, cur), append(labels, i18n.T("自定义", "Custom"))
+		}
+		for _, t := range settings.IPInfoURLs {
+			values, labels = append(values, t.URL), append(labels, t.Name)
+		}
+		u.optSelect(c, p, "ipinfopreset", i18n.T("常用服务", "Service"), values, labels, cur, func(v string) {
+			u.setOpt(func(s *settings.Settings) { s.IPInfoURL = v })
+		})
+		u.optText(c, p, "ipinfourl", i18n.T("质量检测地址", "Address lookup URL"), s.IPInfoURL, 0, func(v string) {
+			v = strings.TrimSpace(v)
+			u.setOpt(func(s *settings.Settings) { s.IPInfoURL = v })
+		}).Placeholder(settings.IPInfoURLs[0].URL)
+	})
 	optWide(c, p, i18n.T("测速地址", "Test URL"), i18n.T("Provider 健康检查用的地址；默认路由没改过测速站点时，也是它的主目标。其他路由在各自的节点列表里设置", "Used for provider health checks, and as the default route's main target unless you changed its test sites. Other routes set theirs in their node list"), func() {
+		// A preset is an address picked by name, which fills the field
+		// below; any other address is typed, and the picker then reads
+		// 自定义. Both controls write the one setting.
+		known := false
+		var values, labels []string
+		for _, t := range settings.TestURLs {
+			if t.URL == s.TestURL {
+				known = true
+			}
+		}
+		if !known {
+			values, labels = append(values, s.TestURL), append(labels, i18n.T("自定义", "Custom"))
+		}
+		for _, t := range settings.TestURLs {
+			values, labels = append(values, t.URL), append(labels, t.Name)
+		}
+		u.optSelect(c, p, "testurlpreset", i18n.T("常用地址", "Preset"), values, labels, s.TestURL, func(v string) {
+			u.setOpt(func(s *settings.Settings) { s.TestURL = v })
+		})
 		u.optText(c, p, "testurl", i18n.T("测速地址", "Test URL"), s.TestURL, 0, func(v string) {
 			v = strings.TrimSpace(v)
 			u.setOpt(func(s *settings.Settings) { s.TestURL = v })
+		}).Placeholder(settings.Defaults.TestURL)
+	})
+	optWide(c, p, i18n.T("出口测试地址", "Exit lookup URL"), i18n.T("经节点访问它，看节点真正的出口在哪。要能返回出口 IP 和国家：Cloudflare 的 trace、ip.sb、ipwho.is 这类都行", "Asked through a node to see where it really exits. It must answer with the exit's IP and country: Cloudflare's trace, ip.sb, ipwho.is and the like all do"), func() {
+		// A preset is a service picked by name, which fills the address
+		// below; any other address is typed, and the picker then reads
+		// 自定义. Both controls write the one setting.
+		var values, labels []string
+		if _, ok := locate.PresetFor(s.LocateURL); !ok {
+			values, labels = append(values, s.LocateURL), append(labels, i18n.T("自定义", "Custom"))
+		}
+		for _, pr := range locate.Presets {
+			values, labels = append(values, pr.URL), append(labels, pr.Name)
+		}
+		u.optSelect(c, p, "locatepreset", i18n.T("常用服务", "Service"), values, labels, s.LocateURL, func(v string) {
+			u.setOpt(func(s *settings.Settings) { s.LocateURL = v })
 		})
+		u.optText(c, p, "locateurl", i18n.T("出口测试地址", "Exit lookup URL"), s.LocateURL, 0, func(v string) {
+			v = strings.TrimSpace(v)
+			u.setOpt(func(s *settings.Settings) { s.LocateURL = v })
+		}).Placeholder(locate.DefaultSource)
 	})
 	optRow(c, p, i18n.T("自动测速间隔", "Test interval"), i18n.T("「自动」多久测一次所有节点", "How often Auto tests every node"), func() {
 		u.optNumber(c, p, "urltest", i18n.T("自动测速间隔", "Test interval"), s.URLTestInterval, i18n.T("秒", "s"), func(v int) {
@@ -819,7 +890,7 @@ func (u *UI) dnsSection(c *ui.Context, p *pal, s settings.Settings) {
 		note = i18n.T("TUN 开着，内置 DNS 总是启用", "TUN is on, so the built-in DNS is always on")
 	}
 	sectionNote(c, p, note)
-	u.optSwitch(c, p, "dns", i18n.T("内置 DNS", "Built-in DNS"), i18n.T("不开 TUN 时也由 mihomo 解析域名，而不是系统", "Let mihomo resolve domains instead of the system, even without TUN"), s.DNS || tunOn,
+	u.optSwitch(c, p, "dns", i18n.T("内置 DNS", "Built-in DNS"), i18n.T("内核一直有自己的解析器（节点域名的解析、ECH 都要用它）；打开后还在本机 127.0.0.1:1053 提供 DNS 服务，给手动配置的应用用", "The core always has a resolver of its own, for the nodes' names and ECH; turning this on also serves DNS on 127.0.0.1:1053 for apps set up by hand"), s.DNS || tunOn,
 		func(s *settings.Settings, on bool) { s.DNS = on }, tunOn)
 	optRow(c, p, i18n.T("增强模式", "Enhanced mode"), i18n.T("fake-ip 更快；redir-host 返回真实 IP，兼容性更好", "fake-ip is faster; redir-host returns real IPs and is more compatible"), func() {
 		u.optChoice(c, p, "dnsmode", core.DNSModes, s.DNSMode, func(v string) {

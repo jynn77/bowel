@@ -27,7 +27,19 @@ const (
 	actArmFor  = 3 * time.Second
 	actMono    = "SF Mono, Menlo, monospace"
 	actAllNet  = "TCP + UDP"
+	// actMaxCleared bounds the ids of connections taken off the list: past
+	// this many, the oldest are forgotten, which only means they may show
+	// up again if the core still has them.
+	actMaxCleared = 2000
 )
+
+// clearIcon is the clear-the-page button: an eraser, which is what the lists
+// it empties are — records, not connections. Its strokes are heavier than a
+// section's list icon: a mark this small with thin lines reads as a smudge.
+var clearIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<path d="m7 21-4.3-4.3a1 1 0 0 1 0-1.4L14 4a2 2 0 0 1 2.8 0l4.2 4.2a2 2 0 0 1 0 2.8L12 21z"/>
+<path d="M22 21H7"/>
+</svg>`))
 
 // actAllApps is the app choice that filters no app, in the interface's
 // language; actIsAllApps knows it in every language.
@@ -63,6 +75,16 @@ type activityUI struct {
 	armedAt  time.Time
 	armedSig string
 
+	// 清理 waits for a second click while what it would hide is still
+	// running: when it was armed.
+	clearAt time.Time
+
+	// cleared are the connections taken off the list by hand. The poller
+	// fetches them again every second until the core forgets them, so the
+	// list drops them by id; order bounds that set.
+	cleared map[string]bool
+	order   []string
+
 	// Logs.
 	level int // index in actLevels
 	logQ  string
@@ -93,6 +115,64 @@ func (a *activityUI) filterApp(app string) {
 
 // showLogs opens the page on its logs.
 func (a *activityUI) showLogs() { a.logTab = true }
+
+// clearLogs drops the lines kept for the log view. lastSeq keeps its place,
+// so the poller asks for what comes after this rather than fetching the
+// cleared lines again.
+func (a *activityUI) clearLogs() {
+	a.logs = nil
+	a.logList = ui.ListState{}
+}
+
+// clearArmed says whether a click on 清理 is the confirming one.
+func (a *activityUI) clearArmed() bool {
+	return !a.clearAt.IsZero() && time.Since(a.clearAt) < actArmFor
+}
+
+// tapClear is what the brush does on this tab. The log's lines go at once:
+// they are only a record. The connections the page lists go too, but while
+// they are still running hiding them is not nothing, so that asks for a
+// second click; end to end, failed and blocked ones are gone already and go
+// without one.
+func (u *UI) tapClear() {
+	a := &u.act
+	if a.logTab {
+		a.clearLogs()
+		return
+	}
+	st := a.statusID()
+	if (st == "active" || st == "all") && !a.clearArmed() {
+		a.clearAt = time.Now()
+		return
+	}
+	a.clearAt = time.Time{}
+	u.clearListed()
+}
+
+// clearListed takes off the list the connections it shows now. Nothing is
+// closed: what is still running keeps running, and the list simply stops
+// showing it.
+func (u *UI) clearListed() {
+	a := &u.act
+	if a.cleared == nil {
+		a.cleared = map[string]bool{}
+	}
+	for _, c := range u.actFiltered() {
+		if a.cleared[c.ID] {
+			continue
+		}
+		a.cleared[c.ID] = true
+		a.order = append(a.order, c.ID)
+	}
+	if n := len(a.order) - actMaxCleared; n > 0 {
+		for _, id := range a.order[:n] {
+			delete(a.cleared, id)
+		}
+		a.order = a.order[n:]
+	}
+	a.open = "" // its detail may be one of them
+	a.rows, a.rowsOf, a.rowsKey = nil, nil, ""
+}
 
 // ---- Data ----
 
@@ -185,6 +265,9 @@ func (a *activityUI) statusID() string { return actStatuses[min(max(a.status, 0)
 func (a *activityUI) count(status string) int {
 	n := 0
 	for _, c := range a.conns {
+		if a.cleared[c.ID] {
+			continue
+		}
 		if status == "all" || c.Status == status {
 			n++
 		}
@@ -262,6 +345,7 @@ func (u *UI) actFilter(now time.Time) []Conn {
 	var out []Conn
 	for _, c := range a.conns {
 		switch {
+		case a.cleared[c.ID]:
 		case st != "all" && c.Status != st:
 		case a.route != "" && c.Route != a.route:
 		case !allApps && c.App != a.app:
@@ -391,22 +475,36 @@ func (u *UI) actHead(c *ui.Context, p *pal) {
 	title := fmt.Sprintf(i18n.T("%d 个连接", "%d connections"), n)
 	sub := fmt.Sprintf(i18n.T("↓ %s · ↑ %s · 今日 %s", "↓ %s · ↑ %s · Today %s"), fmtRate(u.tick.Down), fmtRate(u.tick.Up), fmtBytes(u.tick.TodayDown+u.tick.TodayUp))
 	pageHead(c, p, i18n.T("日志", "Log"), title, sub, false, func() {
-		ui.Row(c).Gap(18).Padding(0, 0, 4, 0).Children(func() {
-			for _, tab := range []struct {
-				key, label string
-				logs       bool
-			}{{"conns", i18n.T("连接", "Connections"), false}, {"corelog", i18n.T("内核日志", "Core log"), true}} {
-				on := a.logTab == tab.logs
-				b := ui.ButtonBase(c.Key(tab.key)).Padding(7, 0, 3, 0).Margin(-7, 0, 0, 0).BorderWidth(0, 0, 1.5, 0).BorderColor(ui.Color{}).OnClick(func() { a.logTab = tab.logs })
-				col, w := p.mute, 500
-				if on {
-					b.BorderColor(p.ink)
-					col, w = p.ink, 600
-				} else if b.Hovered() {
-					col = p.ink2
-				}
-				b.Children(func() { ui.Text(c, tab.label).FontSize(13).FontWeight(w).TextColor(col) })
+		ui.Row(c).Gap(16).AlignItems(ui.Center).Padding(0, 0, 4, 0).Children(func() {
+			// A brush beside the tabs: what it drops is what the page
+			// shows — the log's lines, or the connections listed. The
+			// words are in its tooltip, and change when it wants a second
+			// click.
+			clear := i18n.T("清理日志", "Clear log")
+			if !a.logTab {
+				clear = i18n.T("清理列出的连接", "Clear listed connections")
 			}
+			if a.clearArmed() {
+				clear = i18n.T("再点一次确认", "Click again to confirm")
+			}
+			iconButton(c.Key("logclear"), p, clearIcon, clear).OnClick(func() { u.tapClear() })
+			ui.Row(c).Gap(18).Children(func() {
+				for _, tab := range []struct {
+					key, label string
+					logs       bool
+				}{{"conns", i18n.T("连接", "Connections"), false}, {"corelog", i18n.T("内核日志", "Core log"), true}} {
+					on := a.logTab == tab.logs
+					b := ui.ButtonBase(c.Key(tab.key)).Padding(7, 0, 3, 0).Margin(-7, 0, 0, 0).BorderWidth(0, 0, 1.5, 0).BorderColor(ui.Color{}).OnClick(func() { a.logTab = tab.logs })
+					col, w := p.mute, 500
+					if on {
+						b.BorderColor(p.ink)
+						col, w = p.ink, 600
+					} else if b.Hovered() {
+						col = p.ink2
+					}
+					b.Children(func() { ui.Text(c, tab.label).FontSize(13).FontWeight(w).TextColor(col) })
+				}
+			})
 		})
 	})
 }

@@ -10,5 +10,8 @@
     "infoPlist": {
       "NSCameraUsageDescription": "bowel 用摄像头扫描订阅或节点的二维码。"
     }
+  },
+  "windows": {
+    "installerInclude": "packaging/windows/installer.nsh"
   }
 }

@@ -264,6 +264,7 @@ func (m match) place() Place {
 }
 
 func findMatches(s string) []match {
+	s = stripInvisible(s)
 	var ms []match
 
 	// Flag emoji: a pair of regional indicators spells the ISO code.
@@ -346,6 +347,36 @@ func dropContained(ms []match) []match {
 		}
 	}
 	return out
+}
+
+// invisible lists the zero-width characters providers hide inside a name so
+// that it is not read, by a person or by a filter: "[Vless] H\u200bK\u200b
+// \u200bT\u200bG:@channel" is "HK TG:@channel" written with a zero-width space
+// between every letter. They are dropped before matching, which joins the
+// pieces of a name back into words ("H\u200bK" is the token "hk", "日\u200b本"
+// is the substring "日本"); a real space stays a separator.
+func stripInvisible(s string) string {
+	if !strings.ContainsFunc(s, invisible) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if invisible(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+func invisible(r rune) bool {
+	switch r {
+	case '\u00ad', // soft hyphen
+		'\u180e',                                         // Mongolian vowel separator
+		'\u200b', '\u200c', '\u200d', '\u200e', '\u200f', // ZWSP, ZWNJ, ZWJ, LRM, RLM
+		'\u2060', '\u2061', '\u2062', '\u2063', '\u2064', // word joiner and invisible operators
+		'\ufeff': // zero-width no-break space
+		return true
+	}
+	return false
 }
 
 // token is a run of ASCII letters (after folding accents and full-width

@@ -682,8 +682,8 @@ func (u *UI) provBtn(c *ui.Context, p *pal, label string, danger bool) ui.Elemen
 func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView) {
 	pr := &u.prov
 	cols := func(cells ...func()) {
-		widths := []float32{22, 0, 0, 100, 0, 64, 64}
-		grow := []float32{0, 1.4, 1.2, 0, 1, 0, 0}
+		widths := []float32{22, 0, 0, 0, 100, 0, 64, 64}
+		grow := []float32{0, 1.2, .9, 1.1, 0, 1, 0, 0}
 		for i, cell := range cells {
 			e := ui.Row(c).Gap(6).AlignItems(ui.Center).MinWidth(0)
 			if widths[i] > 0 {
@@ -701,7 +701,7 @@ func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView)
 		return func() { ui.Text(c, s).FontSize(10.5).FontWeight(600).LetterSpacing(.8).TextColor(p.mute) }
 	}
 	ui.Row(c).Gap(12).Padding(9, 0, 7, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
-		cols(func() {}, head(i18n.T("节点", "Node")), head(i18n.T("出口位置", "Exit location")), head(i18n.T("协议", "Protocol")), head(i18n.T("被哪些路由使用", "Used by routes")), head("Ping"), head("URL"))
+		cols(func() {}, head(i18n.T("节点", "Node")), head(i18n.T("出口位置", "Exit location")), head(i18n.T("地址", "Address")), head(i18n.T("协议", "Protocol")), head(i18n.T("被哪些路由使用", "Used by routes")), head("Ping"), head("URL"))
 	})
 	if len(nodes) == 0 {
 		msg := i18n.T("这个来源还没有节点。", "This source has no nodes yet.")
@@ -720,6 +720,15 @@ func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView)
 				func() {
 					ui.Text(c, placeName(n)).FontSize(12).TextColor(p.ink2).MaxLines(1).Shrink(1)
 					locTag(c, p, n.Where.Source)
+				},
+				func() {
+					// The server as the subscription gave it, so a node can be
+					// told apart by where it lands.
+					addr := n.Address
+					if addr == "" {
+						addr = "—"
+					}
+					ui.Text(c, addr).Font("SF Mono, Menlo").FontSize(11.5).TextColor(p.mute).MaxLines(1).Shrink(1)
 				},
 				func() { ui.Text(c, n.Type).FontSize(12).TextColor(p.mute).MaxLines(1) },
 				func() {
