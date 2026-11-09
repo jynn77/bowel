@@ -607,9 +607,9 @@ func (u *UI) generalSection(c *ui.Context, p *pal, s settings.Settings) {
 			u.setOpt(func(s *settings.Settings) { s.Accent = v })
 		}).Margin(0, 0, 0, 6)
 	})
-	optWide(c, p, i18n.T("节点名屏蔽字符", "Name-hidden characters"), i18n.T("里面每个字符都会从节点的名字里删掉后再显示。默认是零宽字符——订阅往名字里塞它防复制，看不见但会读出空隙；清空则一个都不删", "Every character in it is dropped from node names as they are shown. The default is the zero-width set subscriptions split names with: invisible, but they read as gaps; empty drops none"), func() {
-		u.optText(c, p, "stripchars", i18n.T("节点名屏蔽字符", "Name-hidden characters"), s.StripChars, 0, func(v string) {
-			u.setOpt(func(s *settings.Settings) { s.StripChars = v })
+	optWide(c, p, i18n.T("节点名屏蔽规则", "Name rules"), i18n.T("每条删掉节点名里匹配的片段后再显示：普通文本按字面量，两端是 / 的按正则，如 /\\[.*\\]/。默认一条删零宽字符——订阅往名字里塞它防复制，看不见但会读出空隙", "Each rule drops what it matches from node names as they are shown: plain text matches itself, and one between two slashes is a regular expression, as in /\\[.*\\]/. The default drops the zero-width characters subscriptions split names with: invisible, but they read as gaps"), func() {
+		u.optList(c, p, "striprules", i18n.T("节点名屏蔽规则", "Name rules"), s.StripRules, func(v []string) {
+			u.setOpt(func(s *settings.Settings) { s.StripRules = v })
 		})
 	})
 	optRow(c, p, i18n.T("开机启动", "Open at login"), i18n.T("登录 Mac 时自动打开 bowel", "Open bowel when you log in to this Mac"), func() {

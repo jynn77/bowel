@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"slices"
 	"sort"
@@ -88,10 +89,10 @@ type App struct {
 	// nodeProxies are the providers' nodes as last read. The maps below are
 	// replaced, never changed, so a snapshot can hold on to them.
 	nodeProxies map[string]mihomo.Proxy
-	// strip holds, as a set of runes, what the settings say node names are
-	// shown without (Settings.StripChars). Replaced by loadStrip whenever
+	// strip holds the name rules compiled, what the settings say node names
+	// are shown without (Settings.StripRules). Replaced by loadStrip whenever
 	// the setting changes; never written after it is stored.
-	strip atomic.Pointer[map[rune]struct{}]
+	strip atomic.Pointer[[]*regexp.Regexp]
 	pings       map[string]pingResult
 	sites       map[string]siteResult // by route id
 	sitesBusy   map[string]bool
@@ -955,7 +956,7 @@ func migrateData(dir string) {
 // the skin and the board's borders.
 func appOnly(old, next settings.Settings) bool {
 	next.Language, next.StartHidden, next.Accent, next.Appearance = old.Language, old.StartHidden, old.Accent, old.Appearance
-	next.Skin, next.Borders, next.StripChars = old.Skin, old.Borders, old.StripChars
+	next.Skin, next.Borders, next.StripRules = old.Skin, old.Borders, old.StripRules
 	next.MCPPolicy = old.MCPPolicy                  // the MCP server's, not the core's
 	if routingCoreSame(old.Routing, next.Routing) { // a strategy is a selector's position
 		next.Routing = old.Routing
@@ -1572,8 +1573,8 @@ func trimFlag(s string) string {
 	return t
 }
 
-// display is a node's label, without the characters the user asked to keep
-// out of node names; not with a.mu held.
+// display is a node's label, without what the user's name rules match; not
+// with a.mu held.
 func (a *App) display(node string) string {
 	a.mu.Lock()
 	pn := a.provNodes
@@ -1581,32 +1582,29 @@ func (a *App) display(node string) string {
 	return a.stripped(a.label(pn, node))
 }
 
-// stripped is s without the characters the settings keep out of node names.
-// The name the core goes by keeps them, so choices, rules and the running
-// config are unchanged; only what the interface shows drops them.
+// stripped is s without what the settings' name rules match, each rule in
+// its turn. The name the core goes by keeps it, so choices, rules and the
+// running config are unchanged; only what the interface shows drops it.
 func (a *App) stripped(s string) string {
-	set := a.strip.Load()
-	if set == nil || len(*set) == 0 ||
-		!strings.ContainsFunc(s, func(r rune) bool { _, ok := (*set)[r]; return ok }) {
+	rules := a.strip.Load()
+	if rules == nil || len(*rules) == 0 {
 		return s
 	}
-	return strings.Map(func(r rune) rune {
-		if _, ok := (*set)[r]; ok {
-			return -1
+	for _, re := range *rules {
+		if re != nil {
+			s = re.ReplaceAllString(s, "")
 		}
-		return r
-	}, s)
+	}
+	return s
 }
 
 // loadStrip reads what the settings say node names are shown without, as
-// the set stripped works from. Called when the app is made and whenever the
-// setting changes.
+// the compiled rules stripped works from. Called when the app is made and
+// whenever the setting changes; a rule that does not compile is skipped,
+// since the settings refuse to save one.
 func (a *App) loadStrip() {
-	set := map[rune]struct{}{}
-	for _, r := range a.settings.Get().StripChars {
-		set[r] = struct{}{}
-	}
-	a.strip.Store(&set)
+	res, _ := settings.CompileRules(a.settings.Get().StripRules)
+	a.strip.Store(&res)
 }
 
 func providerOf(node string) string {

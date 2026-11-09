@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"regexp"
 	"testing"
 
 	"github.com/oboo/moho/internal/core"
+	"github.com/oboo/moho/internal/geo"
 	"github.com/oboo/moho/internal/provider"
+	"github.com/oboo/moho/internal/settings"
 )
 
 // A node that is all of a pasted link provider goes by the provider's name,
@@ -51,12 +54,16 @@ func TestNodeLabelFollowsLinkProvider(t *testing.T) {
 // A subscription writes zero-width characters between the letters of its
 // names so that they cannot be copied intact. They are invisible, so in the
 // interface they only read as gaps. What names are shown without is the
-// user's to say: each character of the setting is dropped, and a set that
-// has none drops nothing. The name the core goes by keeps them.
+// user's to say: each rule of the setting drops what it matches, plain text
+// by itself and /…/ as a regular expression, and a list that has none drops
+// nothing. The name the core goes by keeps what is matched.
 func TestDisplayDropsConfigured(t *testing.T) {
 	a := &App{}
-	zero := map[rune]struct{}{'\u200b': {}, '\u200d': {}, '\ufeff': {}}
-	a.strip.Store(&zero)
+	rules, bad := settings.CompileRules([]string{geo.InvisibleRule})
+	if len(bad) != 0 {
+		t.Fatalf("the default rule does not compile: %v", bad)
+	}
+	a.strip.Store(&rules)
 	for _, tc := range []struct{ in, want string }{
 		{"[Vless] H\u200bK\u200b \u200bT\u200bG:@channel", "[Vless] HK TG:@channel"},
 		{"日\u200b本\u200b 01", "日本 01"},
@@ -67,14 +74,22 @@ func TestDisplayDropsConfigured(t *testing.T) {
 			t.Errorf("stripped(display(%q)) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
-	// The set is the user's: characters not in it stay, and an empty set
-	// leaves the name alone, zero-width or not.
-	a.strip.Store(&map[rune]struct{}{' ': {}})
-	if got := a.stripped(display("H K\u200b TG")); got != "HK\u200bTG" {
-		t.Errorf("only what is in the set drops: %q", got)
+	// The rules are the user's: a plain rule drops itself, a /…/ rule drops
+	// what its expression matches, and an empty list leaves the name alone.
+	rules, _ = settings.CompileRules([]string{"IPLC", "/\\[.*\\]/", "/@\\w+/"})
+	a.strip.Store(&rules)
+	for _, tc := range []struct{ in, want string }{
+		{"HK IPLC 01", "HK  01"},
+		{"[Vless] HK TG", " HK TG"},
+		{"日本 @channel", "日本 "},
+		{"日本 02", "日本 02"},
+	} {
+		if got := a.stripped(display(tc.in)); got != tc.want {
+			t.Errorf("stripped(display(%q)) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
-	a.strip.Store(&map[rune]struct{}{})
+	a.strip.Store(&[]*regexp.Regexp{})
 	if got := a.stripped(display("日\u200b本 01")); got != "日\u200b本 01" {
-		t.Errorf("an empty set drops nothing: %q", got)
+		t.Errorf("an empty list drops nothing: %q", got)
 	}
 }

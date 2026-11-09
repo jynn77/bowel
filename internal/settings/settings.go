@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -33,11 +34,12 @@ type Settings struct {
 	// Skin is the interface's look as a whole: its paper and ink, faces,
 	// corners and texture (Skins). "" is the first, paper.
 	Skin string `json:"skin"`
-	// StripChars is the characters node names are shown without: every
-	// character of the string is dropped wherever it appears in a name the
-	// interface shows. The name the core goes by keeps them, so choices,
-	// rules and the running config are unchanged. "" drops none.
-	StripChars string `json:"stripChars"`
+	// StripRules are the name rules: each drops what it matches from every
+	// node name the interface shows. A rule of plain text matches itself; a
+	// rule written between two slashes is a regular expression, as in
+	// /\[.*\]/. The name the core goes by keeps what is matched, so
+	// choices, rules and the running config are unchanged.
+	StripRules []string `json:"stripRules"`
 
 	// Takeover: which entries the user wants. Whether they are actually in
 	// effect is the status model's business, not stored here.
@@ -116,7 +118,7 @@ var Defaults = Settings{
 	Appearance:  "system",
 	Borders:     "straight",
 	Skin:        "paper",
-	StripChars:  geo.InvisibleChars,
+	StripRules:  []string{geo.InvisibleRule},
 	MCPPolicy:   "ask",
 	SystemProxy: true,
 	Paused:      true,
@@ -175,6 +177,26 @@ func jsonKey(b []byte, key string) bool {
 	return ok
 }
 
+// CompileRules turns the name rules into regular expressions: a rule of
+// plain text matches itself, and one written between two slashes matches
+// what is between them. The result is one expression per rule; a rule that
+// does not compile has nil there, with its place in bad.
+func CompileRules(rules []string) (res []*regexp.Regexp, bad []int) {
+	res = make([]*regexp.Regexp, len(rules))
+	for i, r := range rules {
+		if len(r) > 1 && strings.HasPrefix(r, "/") && strings.HasSuffix(r, "/") {
+			if re, err := regexp.Compile(r[1 : len(r)-1]); err == nil {
+				res[i] = re
+				continue
+			}
+			bad = append(bad, i)
+			continue
+		}
+		res[i] = regexp.MustCompile(regexp.QuoteMeta(r))
+	}
+	return res, bad
+}
+
 func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
@@ -201,12 +223,12 @@ func Open(dir string) (*Store, error) {
 	if st.s.Skin == "" {
 		st.s.Skin = Defaults.Skin
 	}
-	if st.s.StripChars == "" {
+	if st.s.StripRules == nil {
 		// A settings.json written before this field says nothing about it:
 		// take the default, as the automatic stripping did before it became
-		// a setting. A field the user cleared is written as "" and stays.
-		if !jsonKey(b, "stripChars") {
-			st.s.StripChars = Defaults.StripChars
+		// a setting. A list the user emptied is written as [] and stays.
+		if !jsonKey(b, "stripRules") {
+			st.s.StripRules = Defaults.StripRules
 		}
 	}
 	if st.s.MixedPort == 0 {
@@ -245,6 +267,7 @@ func (st *Store) Get() Settings {
 func (s Settings) Clone() Settings {
 	s.Bypass = slices.Clone(s.Bypass)
 	s.Rules = slices.Clone(s.Rules)
+	s.StripRules = slices.Clone(s.StripRules)
 	s.Routing = s.Routing.Clone()
 	s.Options = s.Options.Clone()
 	if s.RouteTargets != nil {
@@ -334,6 +357,16 @@ func (s Settings) Validate() error {
 	for _, b := range s.Bypass {
 		if strings.ContainsAny(b, " \t,;") {
 			return fmt.Errorf(i18n.T("不走代理的写法不对: %s", "Malformed bypass entry: %s"), b)
+		}
+	}
+	for i, r := range s.StripRules {
+		if strings.TrimSpace(r) == "" {
+			return fmt.Errorf(i18n.T("屏蔽规则 %d 是空的", "Name rule %d is empty"), i+1)
+		}
+		if len(r) > 1 && strings.HasPrefix(r, "/") && strings.HasSuffix(r, "/") {
+			if _, err := regexp.Compile(r[1 : len(r)-1]); err != nil {
+				return fmt.Errorf(i18n.T("屏蔽规则 %d 的正则写法不对: %s", "The regular expression of name rule %d is malformed: %s"), i+1, r)
+			}
 		}
 	}
 	// Every listener on a port of its own.

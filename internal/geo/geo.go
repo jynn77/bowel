@@ -351,8 +351,14 @@ func dropContained(ms []match) []match {
 
 // InvisibleChars is the zero-width characters providers hide inside a name
 // so that it is not read, by a person or by a filter, as one string: it is
-// the settings' default for the characters node names are shown without.
+// what the matcher drops before matching.
 const InvisibleChars = "\u00ad\u180e\u200b\u200c\u200d\u200e\u200f\u2060\u2061\u2062\u2063\u2064\ufeff"
+
+// InvisibleRule is one name rule matching the zero-width characters
+// providers hide inside a name (InvisibleChars). It is the settings'
+// default: a regular expression, as the name rules' syntax asks, written
+// between two slashes.
+const InvisibleRule = "/[\\x{00AD}\\x{180E}\\x{200B}-\\x{200F}\\x{2060}-\\x{2064}\\x{FEFF}]/"
 
 // stripInvisible drops the zero-width characters providers hide inside a
 // name so that it is not read, by a person or by a filter: "[Vless] H\u200b
