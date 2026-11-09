@@ -16,7 +16,11 @@ import (
 
 // notShown are Chinese literals that are names, not words for people:
 // they stay Chinese in every language.
-var notShown = []string{"·自动"}
+var notShown = []string{
+	"·自动",
+	// matched against a network name by ipinfo: data, not a word for people
+	"电信", "联通", "移动", "铁通", "广电", "宽带",
+}
 
 // skipFiles hold Chinese that is data or is translated elsewhere
 // (geo.Display has its own tables).
@@ -30,6 +34,7 @@ func TestTablesCoverSource(t *testing.T) {
 	missing := map[string][]string{}
 	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		rel, _ := filepath.Rel(root, path)
+		rel = filepath.ToSlash(rel) // skipFiles are written with '/', and Rel uses '\' on Windows
 		if d.IsDir() {
 			if strings.HasPrefix(d.Name(), ".") || d.Name() == "prototype" || d.Name() == "resources" || d.Name() == "scripts" {
 				return filepath.SkipDir

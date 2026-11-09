@@ -136,7 +136,7 @@ var TestURLs = []Target{
 	{"Google 204", "https://www.gstatic.com/generate_204"},
 	{"Cloudflare 204", "https://cp.cloudflare.com/generate_204"},
 	{"GitHub", "https://github.com"},
-	{"百度", "https://www.baidu.com"},
+	{"Baidu", "https://www.baidu.com"},
 }
 
 // IPInfoURLs are the address services the 出口 IP 质量检测 setting offers by
