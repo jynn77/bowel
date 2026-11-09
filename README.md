@@ -124,7 +124,7 @@ open a device.
 
 ### What else is here on top of 0.2.0
 
-- **Exit address quality**: the manifest asks one address service the settings
+- **Exit address quality**: the app asks one address service the settings
   name (ip-api.com by default; ipwho.is, ip.sb and ipapi.co also work) whether
   the exit is a data centre or a home line and whether it is listed as a proxy,
   then grades it — excellent, good, fair, poor — together with the node's
