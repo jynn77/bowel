@@ -612,7 +612,7 @@ func (u *UI) generalSection(c *ui.Context, p *pal, s settings.Settings) {
 			u.setOpt(func(s *settings.Settings) { s.StripRules = v })
 		})
 	})
-	optRow(c, p, i18n.T("开机启动", "Open at login"), i18n.T("登录 Mac 时自动打开 bowel", "Open bowel when you log in to this Mac"), func() {
+	optRow(c, p, i18n.T("开机启动", "Open at login"), i18n.T("登录系统时自动打开 bowel", "Open bowel when you log in to this system"), func() {
 		on := u.snap.OpenAtLogin
 		if ui.Switch(c.Key("login"), &on).Label(i18n.T("开机启动", "Open at login")).Changed() {
 			u.snap.OpenAtLogin = on // shown at once; the next snapshot says what the system did

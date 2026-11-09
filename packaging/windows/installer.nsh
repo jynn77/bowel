@@ -13,4 +13,8 @@
 
 !macro customUnInstall
   DeleteRegValue HKCU "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\bowel.exe"
+  ; The login item is a scheduled task of the highest run level, not a Run
+  ; key: it starts the app with the administrator's token, which the tunnel
+  ; needs. Left behind by an uninstall, it would try to start a gone exe.
+  nsExec::Exec 'schtasks /Delete /TN "bowel" /F'
 !macroend

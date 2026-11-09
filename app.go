@@ -231,7 +231,7 @@ func (a *App) start() {
 	// test's goroutine has no loop on.
 	mygo.Theme.SetSource(mygo.ThemeSource(appearanceOf(a.settings.Get())))
 	registerFonts()
-	a.openAtLogin = mygo.App.OpenAtLogin()
+	a.openAtLogin = openAtLoginOS()
 	a.openWindow()
 	a.setupTray()
 	a.copyGeo()
@@ -1068,11 +1068,11 @@ func (a *App) flushDNS() error {
 
 // setOpenAtLogin makes Moho a login item of the user, or not.
 func (a *App) setOpenAtLogin(on bool) error {
-	if err := mygo.App.SetOpenAtLogin(on); err != nil {
+	if err := setOpenAtLoginOS(on); err != nil {
 		return err
 	}
 	a.mu.Lock()
-	a.openAtLogin = mygo.App.OpenAtLogin()
+	a.openAtLogin = openAtLoginOS()
 	a.mu.Unlock()
 	a.refresh()
 	return nil
@@ -1081,7 +1081,7 @@ func (a *App) setOpenAtLogin(on bool) error {
 // readOpenAtLogin asks the system again: the user can change it in System
 // Settings.
 func (a *App) readOpenAtLogin() {
-	on := mygo.App.OpenAtLogin()
+	on := openAtLoginOS()
 	a.mu.Lock()
 	changed := a.openAtLogin != on
 	a.openAtLogin = on

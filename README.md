@@ -50,6 +50,11 @@ There is no upstream Windows build; this is a port, not a wrapper.
   Finder's `open -R`, which does not exist here. It selects the file in
   Explorer now, and says so. The MCP bridge's "open the app" starts the exe
   instead of failing on the missing `.app` bundle.
+- **Open at login**: the framework's login item goes through the Run key,
+  whose entries start unelevated — dead for a tunnel. It is a scheduled task
+  of the highest run level here, which starts the app with the
+  administrator's token at logon and without a prompt; the uninstaller takes
+  the task away.
 
 ### Elsewhere
 
