@@ -47,3 +47,19 @@ func TestNodeLabelFollowsLinkProvider(t *testing.T) {
 		t.Errorf("DIRECT = %q", got)
 	}
 }
+
+// A subscription writes zero-width characters between the letters of its
+// names so that they cannot be copied intact. They are invisible, so in the
+// interface they only read as gaps — the name is shown without them.
+func TestDisplayDropsInvisible(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"[Vless] H\u200bK\u200b \u200bT\u200bG:@channel", "[Vless] HK TG:@channel"},
+		{"日\u200b本\u200b 01", "日本 01"},
+		{"\ufeffNK\u200b 02", "NK 02"},
+		{"plain name", "plain name"},
+	} {
+		if got := display(tc.in); got != tc.want {
+			t.Errorf("display(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

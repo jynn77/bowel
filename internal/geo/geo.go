@@ -264,7 +264,7 @@ func (m match) place() Place {
 }
 
 func findMatches(s string) []match {
-	s = stripInvisible(s)
+	s = StripInvisible(s)
 	var ms []match
 
 	// Flag emoji: a pair of regional indicators spells the ISO code.
@@ -349,13 +349,14 @@ func dropContained(ms []match) []match {
 	return out
 }
 
-// invisible lists the zero-width characters providers hide inside a name so
-// that it is not read, by a person or by a filter: "[Vless] H\u200bK\u200b
+// StripInvisible drops the zero-width characters providers hide inside a name
+// so that it is not read, by a person or by a filter: "[Vless] H\u200bK\u200b
 // \u200bT\u200bG:@channel" is "HK TG:@channel" written with a zero-width space
-// between every letter. They are dropped before matching, which joins the
-// pieces of a name back into words ("H\u200bK" is the token "hk", "日\u200b本"
-// is the substring "日本"); a real space stays a separator.
-func stripInvisible(s string) string {
+// between every letter. Dropped before matching, the pieces join back into
+// words ("H\u200bK" is the token "hk", "日\u200b本" is the substring "日本");
+// a real space stays a separator. The interface drops them from what it shows
+// for the same reason: they are invisible, so they only read as a gap.
+func StripInvisible(s string) string {
 	if !strings.ContainsFunc(s, invisible) {
 		return s
 	}

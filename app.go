@@ -1516,12 +1516,15 @@ func (a *App) routeOfGroup(group, rule string) string {
 	return ""
 }
 
-// display is a node's name without Moho's provider marker.
+// display is a node's name without Moho's provider marker, and without the
+// zero-width characters a subscription hides inside it so that the name
+// cannot be copied intact. They are invisible, so they only read as gaps in
+// the middle of it — "H​K ​T​G" instead of "HK TG".
 func display(node string) string {
 	if i := strings.Index(node, core.NodeSep); i >= 0 {
-		return node[:i]
+		node = node[:i]
 	}
-	return node
+	return geo.StripInvisible(node)
 }
 
 // label is what people read for a node: its own name, but a node that is
@@ -1533,7 +1536,7 @@ func (a *App) label(provNodes map[string][]string, node string) string {
 	id := providerOf(node)
 	if len(provNodes[id]) == 1 {
 		if p, ok := a.providers.Get(id); ok && p.Kind == provider.Link {
-			return trimFlag(p.Name)
+			return trimFlag(geo.StripInvisible(p.Name))
 		}
 	}
 	return trimFlag(display(node))
