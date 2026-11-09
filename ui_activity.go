@@ -76,8 +76,9 @@ type activityUI struct {
 	armedSig string
 
 	// 清理 waits for a second click while what it would hide is still
-	// running: when it was armed.
-	clearAt time.Time
+	// running: when it was armed, and for which filter.
+	clearAt  time.Time
+	clearSig string
 
 	// cleared are the connections taken off the list by hand. The poller
 	// fetches them again every second until the core forgets them, so the
@@ -124,9 +125,11 @@ func (a *activityUI) clearLogs() {
 	a.logList = ui.ListState{}
 }
 
-// clearArmed says whether a click on 清理 is the confirming one.
+// clearArmed says whether a click on 清理 is the confirming one. Another
+// filter is another list, so changing it disarms: what was confirmed was not
+// what the page shows now.
 func (a *activityUI) clearArmed() bool {
-	return !a.clearAt.IsZero() && time.Since(a.clearAt) < actArmFor
+	return !a.clearAt.IsZero() && a.clearSig == a.sig() && time.Since(a.clearAt) < actArmFor
 }
 
 // tapClear is what the brush does on this tab. The log's lines go at once:
@@ -142,7 +145,7 @@ func (u *UI) tapClear() {
 	}
 	st := a.statusID()
 	if (st == "active" || st == "all") && !a.clearArmed() {
-		a.clearAt = time.Now()
+		a.clearAt, a.clearSig = time.Now(), a.sig()
 		return
 	}
 	a.clearAt = time.Time{}
@@ -378,7 +381,14 @@ func (u *UI) actFilter(now time.Time) []Conn {
 
 // sig names the filter, so an armed 断开筛选结果 disarms when it changes.
 func (a *activityUI) sig() string {
-	return strings.Join([]string{a.q, a.statusID(), a.route, a.app, a.net}, "\x00")
+	// "All apps" reads as no filter, however it is spelled: the select fills
+	// the field in, and a signature that changed when it did would disarm a
+	// click the user had already made.
+	app := a.app
+	if actIsAllApps(app) {
+		app = ""
+	}
+	return strings.Join([]string{a.q, a.statusID(), a.route, app, a.net}, "\x00")
 }
 
 func actDuration(c Conn, now time.Time) time.Duration {
@@ -476,18 +486,11 @@ func (u *UI) actHead(c *ui.Context, p *pal) {
 	sub := fmt.Sprintf(i18n.T("↓ %s · ↑ %s · 今日 %s", "↓ %s · ↑ %s · Today %s"), fmtRate(u.tick.Down), fmtRate(u.tick.Up), fmtBytes(u.tick.TodayDown+u.tick.TodayUp))
 	pageHead(c, p, i18n.T("日志", "Log"), title, sub, false, func() {
 		ui.Row(c).Gap(16).AlignItems(ui.Center).Padding(0, 0, 4, 0).Children(func() {
-			// A brush beside the tabs: what it drops is what the page
-			// shows — the log's lines, or the connections listed. The
-			// words are in its tooltip, and change when it wants a second
-			// click.
-			clear := i18n.T("清理日志", "Clear log")
-			if !a.logTab {
-				clear = i18n.T("清理列出的连接", "Clear listed connections")
+			// The log's clear sits here: its page has no filter row to put
+			// it in. The connections one sits by the app filter.
+			if a.logTab {
+				iconButton(c.Key("logclear"), p, clearIcon, i18n.T("清理日志", "Clear log")).OnClick(func() { u.tapClear() })
 			}
-			if a.clearArmed() {
-				clear = i18n.T("再点一次确认", "Click again to confirm")
-			}
-			iconButton(c.Key("logclear"), p, clearIcon, clear).OnClick(func() { u.tapClear() })
 			ui.Row(c).Gap(18).Children(func() {
 				for _, tab := range []struct {
 					key, label string
@@ -652,6 +655,7 @@ func (u *UI) actQueryBar(c *ui.Context, p *pal) {
 				}
 			})
 			ui.Spacer(c)
+			u.clearBtn(c, p)
 			apps := []string{actAllApps()}
 			seen := map[string]bool{}
 			for _, cn := range a.conns {
@@ -672,6 +676,35 @@ func (u *UI) actQueryBar(c *ui.Context, p *pal) {
 			actSelect(c.Key("net"), p, &a.net, []string{actAllNet, "TCP", "UDP"}, i18n.T("网络", "Network"))
 		})
 	})
+}
+
+// clearBtn empties what the connections page lists. It sits by the app
+// filter, and once a click is not enough on its own it turns into a word on
+// the warning colour: an icon that looked exactly as before read as "nothing
+// happened", and the click after it took the list away.
+func (u *UI) clearBtn(c *ui.Context, p *pal) ui.Element {
+	a := &u.act
+	if a.clearArmed() {
+		// The mark must go when the arm does, with no click to prompt it.
+		c.After(actArmFor - time.Since(a.clearAt))
+		b := ui.ButtonBase(c.Key("clear")).Padding(4, 10).Radius(p.r(6)).Background(p.warn).Shrink(0)
+		if b.Hovered() {
+			b.Background(p.warn.Alpha(.85))
+		}
+		return b.OnClick(func() { u.tapClear() }).Children(func() {
+			ui.Text(c, fmt.Sprintf(i18n.T("确认清理 %d 个？", "Clear %d?"), len(u.actFiltered()))).
+				FontSize(11.5).FontWeight(600).TextColor(ui.Hex("#ffffff")).NoWrap()
+		})
+	}
+	label := i18n.T("清理列出的连接", "Clear listed connections")
+	// A wash behind the glyph: bare, it sat at the weight of the row's text
+	// and was easy to take for a stray mark rather than the button it is.
+	b := ui.ButtonBase(c.Key("clear")).Size(30, 30).Shrink(0).Radius(p.r(8)).Justify(ui.Center).AlignItems(ui.Center).
+		Background(p.hair2).Label(label).Tooltip(label)
+	if b.Pressed() || b.Hovered() {
+		b.Background(p.hover)
+	}
+	return b.OnClick(func() { u.tapClear() }).Children(func() { ui.Icon(c, clearIcon).Size(18, 18).TextColor(p.ink) })
 }
 
 // ---- The table ----
