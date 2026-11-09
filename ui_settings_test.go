@@ -531,3 +531,45 @@ func TestSettingsSearchJump(t *testing.T) {
 		t.Error("tun mtu lights the wrong options")
 	}
 }
+
+// TestStripCharsSetting: the general section has the field, it carries the
+// default the zero-width set is, and Enter keeps what the user typed in it.
+// The window is tall enough to hold the whole section, as scrolling does in
+// the real one.
+func TestStripCharsSetting(t *testing.T) {
+	u := fixtureUI()
+	u.snap.Settings = settings.Defaults.Clone()
+	tt := ui.NewTesterWith(u.settingsView, 760, 1000, ui.TesterOptions{})
+	tt.Advance(time.Second)
+	f, ok := tt.AccessByRole(ui.RoleTextField, "节点名屏蔽字符")
+	if !ok {
+		t.Fatalf("no strip field among %q", tt.Texts())
+	}
+	if got := u.shownSettings().StripChars; got != settings.Defaults.StripChars {
+		t.Errorf("strip chars %q, want the default", got)
+	}
+	// Typing goes nowhere until Enter; Enter keeps what was typed.
+	tt.ClickAt(f.Bounds.X+f.Bounds.W/2, f.Bounds.Y+f.Bounds.H/2)
+	tt.Frame()
+	tt.Key(ui.Cmd, ui.KeyA)
+	tt.Type("港 ")
+	tt.Frame()
+	if u.shownSettings().StripChars != settings.Defaults.StripChars {
+		t.Error("the strip set changed while typing")
+	}
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	tt.Frame()
+	if got := u.shownSettings().StripChars; got != "港 " {
+		t.Errorf("strip chars %q after Enter", got)
+	}
+	// A tester with no app behind it: the shown settings say what setOpt
+	// would write, which is what a field is edited through.
+	u2 := fixtureUI()
+	u2.snap.Settings = settings.Defaults.Clone()
+	tt2 := ui.NewTesterWith(u2.settingsView, 760, 1000, ui.TesterOptions{})
+	tt2.Advance(time.Second)
+	if !tt2.HasText("节点名屏蔽字符") {
+		t.Error("the strip field is not on the general section")
+	}
+}

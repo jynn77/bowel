@@ -1564,7 +1564,7 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 			if n, ok := u.node(name); ok {
 				head = append(head, pick{n: n.On(rid), place: i + 1})
 			} else {
-				head = append(head, pick{n: NodeView{Name: name, Display: display(name)}, place: i + 1, gone: true})
+				head = append(head, pick{n: NodeView{Name: name, Display: u.nodeDisplay(name)}, place: i + 1, gone: true})
 			}
 		}
 		list = append(append(head, pick{head: i18n.T("点击加入", "Click to add")}), list...)

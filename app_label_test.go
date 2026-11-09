@@ -50,16 +50,31 @@ func TestNodeLabelFollowsLinkProvider(t *testing.T) {
 
 // A subscription writes zero-width characters between the letters of its
 // names so that they cannot be copied intact. They are invisible, so in the
-// interface they only read as gaps — the name is shown without them.
-func TestDisplayDropsInvisible(t *testing.T) {
+// interface they only read as gaps. What names are shown without is the
+// user's to say: each character of the setting is dropped, and a set that
+// has none drops nothing. The name the core goes by keeps them.
+func TestDisplayDropsConfigured(t *testing.T) {
+	a := &App{}
+	zero := map[rune]struct{}{'\u200b': {}, '\u200d': {}, '\ufeff': {}}
+	a.strip.Store(&zero)
 	for _, tc := range []struct{ in, want string }{
 		{"[Vless] H\u200bK\u200b \u200bT\u200bG:@channel", "[Vless] HK TG:@channel"},
 		{"日\u200b本\u200b 01", "日本 01"},
 		{"\ufeffNK\u200b 02", "NK 02"},
 		{"plain name", "plain name"},
 	} {
-		if got := display(tc.in); got != tc.want {
-			t.Errorf("display(%q) = %q, want %q", tc.in, got, tc.want)
+		if got := a.stripped(display(tc.in)); got != tc.want {
+			t.Errorf("stripped(display(%q)) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+	// The set is the user's: characters not in it stay, and an empty set
+	// leaves the name alone, zero-width or not.
+	a.strip.Store(&map[rune]struct{}{' ': {}})
+	if got := a.stripped(display("H K\u200b TG")); got != "HK\u200bTG" {
+		t.Errorf("only what is in the set drops: %q", got)
+	}
+	a.strip.Store(&map[rune]struct{}{})
+	if got := a.stripped(display("日\u200b本 01")); got != "日\u200b本 01" {
+		t.Errorf("an empty set drops nothing: %q", got)
 	}
 }

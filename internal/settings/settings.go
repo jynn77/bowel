@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/oboo/moho/internal/core"
+	"github.com/oboo/moho/internal/geo"
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/routes"
 )
@@ -32,6 +33,11 @@ type Settings struct {
 	// Skin is the interface's look as a whole: its paper and ink, faces,
 	// corners and texture (Skins). "" is the first, paper.
 	Skin string `json:"skin"`
+	// StripChars is the characters node names are shown without: every
+	// character of the string is dropped wherever it appears in a name the
+	// interface shows. The name the core goes by keeps them, so choices,
+	// rules and the running config are unchanged. "" drops none.
+	StripChars string `json:"stripChars"`
 
 	// Takeover: which entries the user wants. Whether they are actually in
 	// effect is the status model's business, not stored here.
@@ -110,6 +116,7 @@ var Defaults = Settings{
 	Appearance:  "system",
 	Borders:     "straight",
 	Skin:        "paper",
+	StripChars:  geo.InvisibleChars,
 	MCPPolicy:   "ask",
 	SystemProxy: true,
 	Paused:      true,
@@ -157,13 +164,26 @@ type Store struct {
 	gen  uint64 // counts changes
 }
 
+// jsonKey says whether the JSON object b has the key. False when b is not
+// an object or is empty, as a file that says nothing about the key.
+func jsonKey(b []byte, key string) bool {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(b, &m) != nil {
+		return false
+	}
+	_, ok := m[key]
+	return ok
+}
+
 func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 	// A clone: decoding reuses the lists' arrays, which must not be Defaults'.
 	st := &Store{path: filepath.Join(dir, "settings.json"), s: Defaults.Clone()}
-	if b, err := os.ReadFile(st.path); err == nil {
+	var b []byte // the file, when there is one
+	if raw, err := os.ReadFile(st.path); err == nil {
+		b = raw
 		_ = json.Unmarshal(b, &st.s)
 	}
 	if st.s.Language == "" {
@@ -180,6 +200,14 @@ func Open(dir string) (*Store, error) {
 	}
 	if st.s.Skin == "" {
 		st.s.Skin = Defaults.Skin
+	}
+	if st.s.StripChars == "" {
+		// A settings.json written before this field says nothing about it:
+		// take the default, as the automatic stripping did before it became
+		// a setting. A field the user cleared is written as "" and stays.
+		if !jsonKey(b, "stripChars") {
+			st.s.StripChars = Defaults.StripChars
+		}
 	}
 	if st.s.MixedPort == 0 {
 		st.s.MixedPort = Defaults.MixedPort

@@ -88,6 +88,10 @@ type App struct {
 	// nodeProxies are the providers' nodes as last read. The maps below are
 	// replaced, never changed, so a snapshot can hold on to them.
 	nodeProxies map[string]mihomo.Proxy
+	// strip holds, as a set of runes, what the settings say node names are
+	// shown without (Settings.StripChars). Replaced by loadStrip whenever
+	// the setting changes; never written after it is stored.
+	strip atomic.Pointer[map[rune]struct{}]
 	pings       map[string]pingResult
 	sites       map[string]siteResult // by route id
 	sitesBusy   map[string]bool
@@ -165,6 +169,7 @@ func newApp() (*App, error) {
 		gw: gateway.New(osGateway(), filepath.Join(data, "gateway-before.json")),
 	}
 	cm.SafePaths = []string{filepath.Join(data, "providers")}
+	a.loadStrip() // what node names are shown without, before anything shows one
 	a.mon.SkipGroup = core.ProbeGroup // the location probe's own traffic
 	a.mon.FindProcess = procinfo.New().Find
 	a.mon.Every = a.pollEvery
@@ -950,7 +955,7 @@ func migrateData(dir string) {
 // the skin and the board's borders.
 func appOnly(old, next settings.Settings) bool {
 	next.Language, next.StartHidden, next.Accent, next.Appearance = old.Language, old.StartHidden, old.Accent, old.Appearance
-	next.Skin, next.Borders = old.Skin, old.Borders
+	next.Skin, next.Borders, next.StripChars = old.Skin, old.Borders, old.StripChars
 	next.MCPPolicy = old.MCPPolicy                  // the MCP server's, not the core's
 	if routingCoreSame(old.Routing, next.Routing) { // a strategy is a selector's position
 		next.Routing = old.Routing
@@ -993,6 +998,7 @@ func (a *App) updateSettings(fn func(*settings.Settings)) error {
 	if _, err := a.settings.Update(func(s *settings.Settings) { *s = next }); err != nil {
 		return err
 	}
+	a.loadStrip() // what node names are shown without, before the interface re-reads them
 	i18n.Set(next.Language)
 	if appearanceOf(next) != appearanceOf(old) {
 		mygo.Theme.SetSource(mygo.ThemeSource(appearanceOf(next)))
@@ -1516,15 +1522,12 @@ func (a *App) routeOfGroup(group, rule string) string {
 	return ""
 }
 
-// display is a node's name without Moho's provider marker, and without the
-// zero-width characters a subscription hides inside it so that the name
-// cannot be copied intact. They are invisible, so they only read as gaps in
-// the middle of it — "H​K ​T​G" instead of "HK TG".
+// display is a node's name without Moho's provider marker.
 func display(node string) string {
 	if i := strings.Index(node, core.NodeSep); i >= 0 {
-		node = node[:i]
+		return node[:i]
 	}
-	return geo.StripInvisible(node)
+	return node
 }
 
 // label is what people read for a node: its own name, but a node that is
@@ -1536,7 +1539,7 @@ func (a *App) label(provNodes map[string][]string, node string) string {
 	id := providerOf(node)
 	if len(provNodes[id]) == 1 {
 		if p, ok := a.providers.Get(id); ok && p.Kind == provider.Link {
-			return trimFlag(geo.StripInvisible(p.Name))
+			return trimFlag(a.stripped(p.Name))
 		}
 	}
 	return trimFlag(display(node))
@@ -1555,12 +1558,41 @@ func trimFlag(s string) string {
 	return t
 }
 
-// display is a node's label; not with a.mu held.
+// display is a node's label, without the characters the user asked to keep
+// out of node names; not with a.mu held.
 func (a *App) display(node string) string {
 	a.mu.Lock()
 	pn := a.provNodes
 	a.mu.Unlock()
-	return a.label(pn, node)
+	return a.stripped(a.label(pn, node))
+}
+
+// stripped is s without the characters the settings keep out of node names.
+// The name the core goes by keeps them, so choices, rules and the running
+// config are unchanged; only what the interface shows drops them.
+func (a *App) stripped(s string) string {
+	set := a.strip.Load()
+	if set == nil || len(*set) == 0 ||
+		!strings.ContainsFunc(s, func(r rune) bool { _, ok := (*set)[r]; return ok }) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if _, ok := (*set)[r]; ok {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+// loadStrip reads what the settings say node names are shown without, as
+// the set stripped works from. Called when the app is made and whenever the
+// setting changes.
+func (a *App) loadStrip() {
+	set := map[rune]struct{}{}
+	for _, r := range a.settings.Get().StripChars {
+		set[r] = struct{}{}
+	}
+	a.strip.Store(&set)
 }
 
 func providerOf(node string) string {
@@ -1855,7 +1887,7 @@ func (a *App) snapshot() Snapshot {
 	addrs := map[string]map[string]string{}
 	view := func(name string) NodeView {
 		p := px[name]
-		v := NodeView{Name: name, Display: a.label(provNodes, name), Provider: providerOf(name), Type: p.Type, UDP: p.UDP, History: []int{}}
+		v := NodeView{Name: name, Display: a.stripped(a.label(provNodes, name)), Provider: providerOf(name), Type: p.Type, UDP: p.UDP, History: []int{}}
 		if id := v.Provider; id != "" {
 			if _, ok := addrs[id]; !ok {
 				addrs[id] = a.providers.Addrs(id)

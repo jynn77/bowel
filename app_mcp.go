@@ -377,7 +377,7 @@ func (a *App) findNode(s string) (string, error) {
 	}
 	var hits []string
 	for _, n := range nodes {
-		if strings.EqualFold(n.Display, s) || strings.EqualFold(display(n.Name), s) {
+		if strings.EqualFold(n.Display, s) || strings.EqualFold(a.stripped(display(n.Name)), s) {
 			hits = append(hits, n.Name)
 		}
 	}

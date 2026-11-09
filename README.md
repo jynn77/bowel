@@ -68,6 +68,11 @@ There is no upstream Windows build; this is a port, not a wrapper.
   the node's country instead of yours.
 - **Region names**: zero-width characters are dropped before matching, so a node
   named `H​K` or `日​本` is still recognised.
+- **Name-hidden characters**: what node names are shown without is yours to
+  say: a setting lists the characters dropped from every name the interface
+  shows. The default is the zero-width set subscriptions split names with, so
+  `H​K` reads as "HK"; empty drops none. The core keeps the names it was given,
+  so choices, rules and the running config are unchanged.
 
 ## Install
 

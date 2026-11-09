@@ -303,6 +303,9 @@ func (u *UI) nodeDisplay(name string) string {
 	if n, ok := u.node(name); ok {
 		return n.Display
 	}
+	if u.app != nil {
+		return u.app.stripped(display(name))
+	}
 	return display(name)
 }
 
