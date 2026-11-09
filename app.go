@@ -1090,9 +1090,23 @@ func (a *App) readOpenAtLogin() {
 	}
 }
 
-// revealConfig shows the core's runtime config in Finder.
+// revealConfig shows the core's runtime config where files are shown: in
+// the Finder on the Mac, in Explorer on Windows, chosen.
 func (a *App) revealConfig() error {
-	return exec.Command("open", "-R", a.core.ConfigPath()).Run()
+	p := a.core.ConfigPath()
+	if runtime.GOOS == "windows" {
+		// /select opens the folder with the file chosen. Explorer reports
+		// success as exit code 1, as it has since forever; anything else
+		// is a failure, and no explorer at all is the worst one.
+		if err := exec.Command("explorer", "/select,"+p).Run(); err != nil {
+			var ee *exec.ExitError
+			if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+				return err
+			}
+		}
+		return nil
+	}
+	return exec.Command("open", "-R", p).Run()
 }
 
 func (a *App) route(id string) routes.Route {

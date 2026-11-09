@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -94,6 +95,10 @@ func startOwnApp() error {
 		return err
 	}
 	exe, _ = filepath.EvalSymlinks(exe)
+	if runtime.GOOS == "windows" {
+		// bowel.exe is the app; starting it again is opening it.
+		return exec.Command(exe).Start()
+	}
 	bundle := filepath.Dir(filepath.Dir(filepath.Dir(exe))) // X.app/Contents/MacOS/x
 	if !strings.HasSuffix(bundle, ".app") {
 		return errors.New("not inside an .app; start bowel first")

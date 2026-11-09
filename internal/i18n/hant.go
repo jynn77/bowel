@@ -571,6 +571,7 @@ var hantTable = map[string]string{
 	"OPPO Sans 4.0 · © OPPO 广东移动通信有限公司，依 OPPO Sans 字体许可使用": "OPPO Sans 4.0 · © OPPO 廣東移動通信有限公司，依 OPPO Sans 字體授權使用",
 	"bowel 生成、mihomo 正在用的配置文件":                             "bowel 產生、mihomo 正在用的設定檔",
 	"在 Finder 中显示": "在 Finder 中顯示",
+	"在资源管理器中显示": "在檔案總管中顯示",
 	"恢复默认":         "回復預設值",
 	"内核的选项回到 bowel 的默认；端口、局域网、接管和语言不变": "核心的選項回到 bowel 的預設值；連接埠、區域網路、接管和語言不變",
 	"要是整数":        "要是整數",

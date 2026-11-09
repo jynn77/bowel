@@ -570,6 +570,7 @@ var jaTable = map[string]string{
 	"OPPO Sans 4.0 · © OPPO 广东移动通信有限公司，依 OPPO Sans 字体许可使用": "OPPO Sans 4.0 · © Guangdong OPPO Mobile Telecommunications Corp., Ltd. · OPPO Sans フォントライセンスに基づき使用",
 	"bowel 生成、mihomo 正在用的配置文件":                             "bowel が生成し、mihomo が使用中の設定ファイル",
 	"在 Finder 中显示": "Finder に表示",
+	"在资源管理器中显示": "エクスプローラーで表示",
 	"恢复默认":         "デフォルトに戻す",
 	"内核的选项回到 bowel 的默认；端口、局域网、接管和语言不变": "コアのオプションを bowel のデフォルトに戻します。ポート、LAN、テイクオーバー、言語は変更されません",
 	"要是整数":        "は整数で入力してください",

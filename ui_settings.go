@@ -11,6 +11,7 @@ package main
 
 import (
 	"fmt"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -1114,7 +1115,13 @@ func (u *UI) aboutSection(c *ui.Context, p *pal, _ settings.Settings) {
 		})
 	}
 	optRow(c, p, i18n.T("运行配置", "Running config"), i18n.T("bowel 生成、mihomo 正在用的配置文件", "The config file bowel writes and mihomo runs on"), func() {
-		btn(c.Key("reveal"), p, i18n.T("在 Finder 中显示", "Show in Finder")).OnClick(func() {
+		// Where the file is shown is the platform's: Finder on the Mac,
+		// Explorer on Windows.
+		word := i18n.T("在 Finder 中显示", "Show in Finder")
+		if runtime.GOOS == "windows" {
+			word = i18n.T("在资源管理器中显示", "Show in Explorer")
+		}
+		btn(c.Key("reveal"), p, word).OnClick(func() {
 			if u.app != nil {
 				go func() {
 					if err := u.app.revealConfig(); err != nil {

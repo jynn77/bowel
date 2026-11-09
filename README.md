@@ -46,6 +46,10 @@ There is no upstream Windows build; this is a port, not a wrapper.
   takeover as someone else's.
 - **Core logs**: the Windows build hides the console it runs the core in, and
   the log page reads the core's own stream instead.
+- **Showing files**: the 设置 > 关于 "Running config" button opened the
+  Finder's `open -R`, which does not exist here. It selects the file in
+  Explorer now, and says so. The MCP bridge's "open the app" starts the exe
+  instead of failing on the missing `.app` bundle.
 
 ### Elsewhere
 
