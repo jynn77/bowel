@@ -179,8 +179,11 @@ func jsonKey(b []byte, key string) bool {
 
 // CompileRules turns the name rules into regular expressions: a rule of
 // plain text matches itself, and one written between two slashes matches
-// what is between them. The result is one expression per rule; a rule that
-// does not compile has nil there, with its place in bad.
+// what is between them. A plain rule is read without the zero-width
+// characters first: the rule was copied out of a name as shown, and the name
+// the core goes by has them wherever the shown one has none. The result is
+// one expression per rule; a rule that does not compile has nil there, with
+// its place in bad.
 func CompileRules(rules []string) (res []*regexp.Regexp, bad []int) {
 	res = make([]*regexp.Regexp, len(rules))
 	for i, r := range rules {
@@ -192,7 +195,7 @@ func CompileRules(rules []string) (res []*regexp.Regexp, bad []int) {
 			bad = append(bad, i)
 			continue
 		}
-		res[i] = regexp.MustCompile(regexp.QuoteMeta(r))
+		res[i] = regexp.MustCompile(regexp.QuoteMeta(geo.StripInvisible(r)))
 	}
 	return res, bad
 }

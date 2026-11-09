@@ -76,7 +76,9 @@ There is no upstream Windows build; this is a port, not a wrapper.
   of rules, each dropping what it matches from every name the interface
   shows. Plain text matches itself, and a rule between two slashes is a
   regular expression (as in `/\[.*\]/`, which drops a `[Vless]` prefix); as
-  many as you like. The default drops the zero-width characters
+  many as you like. Rules match the name as shown: the zero-width characters
+  the core's name is full of go before the rules read it, so what you see is
+  what a rule can drop. The default drops the zero-width characters
   subscriptions split names with. The core keeps the names it was given, so
   choices, rules and the running config are unchanged.
 

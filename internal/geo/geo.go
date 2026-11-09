@@ -264,7 +264,7 @@ func (m match) place() Place {
 }
 
 func findMatches(s string) []match {
-	s = stripInvisible(s)
+	s = StripInvisible(s)
 	var ms []match
 
 	// Flag emoji: a pair of regional indicators spells the ISO code.
@@ -360,13 +360,15 @@ const InvisibleChars = "\u00ad\u180e\u200b\u200c\u200d\u200e\u200f\u2060\u2061\u
 // between two slashes.
 const InvisibleRule = "/[\\x{00AD}\\x{180E}\\x{200B}-\\x{200F}\\x{2060}-\\x{2064}\\x{FEFF}]/"
 
-// stripInvisible drops the zero-width characters providers hide inside a
+// StripInvisible drops the zero-width characters providers hide inside a
 // name so that it is not read, by a person or by a filter: "[Vless] H\u200b
 // K\u200b \u200bT\u200bG:@channel" is "HK TG:@channel" written with a
 // zero-width space between every letter. Dropped before matching, the pieces
 // join back into words ("H\u200bK" is the token "hk", "日\u200b本" is the
-// substring "日本"); a real space stays a separator.
-func stripInvisible(s string) string {
+// substring "日本"); a real space stays a separator. Name rules are read
+// from what they match too: a rule is written from the name as shown, and
+// the shown name has none of these in it.
+func StripInvisible(s string) string {
 	if !strings.ContainsFunc(s, invisible) {
 		return s
 	}

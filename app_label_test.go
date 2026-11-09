@@ -92,4 +92,19 @@ func TestDisplayDropsConfigured(t *testing.T) {
 	if got := a.stripped(display("日\u200b本 01")); got != "日\u200b本 01" {
 		t.Errorf("an empty list drops nothing: %q", got)
 	}
+	// The rules are written from the name as shown, and the shown name has
+	// none of the zero-width characters the core's name is full of: those go
+	// before the rules read it, or "官方" could never match "官\u200b方".
+	rules, _ = settings.CompileRules([]string{
+		"/🌐官方🌐[^🌐]+🌐(群组|频道)/", "/HKG\\S*?(n|ot)/", "🐲™️【免费共享】",
+	})
+	a.strip.Store(&rules)
+	for _, tc := range []struct{ in, want string }{
+		{"天诚🌐官\u200b方🌐获\u200b取🌐群\u200b组H\u200bK\u200bG01n🐲™\u200b️【\u200b免费共享】", "天诚"},
+		{"天诚🌐官方🌐获取🌐频道HKG02ot🐲™️【免费共享】", "天诚"},
+	} {
+		if got := a.stripped(display(tc.in)); got != tc.want {
+			t.Errorf("stripped(display(%q)) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
 }

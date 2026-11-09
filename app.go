@@ -1582,18 +1582,32 @@ func (a *App) display(node string) string {
 	return a.stripped(a.label(pn, node))
 }
 
-// stripped is s without what the settings' name rules match, each rule in
-// its turn. The name the core goes by keeps it, so choices, rules and the
-// running config are unchanged; only what the interface shows drops it.
+// stripped is s without what the settings' name rules match. The rules are
+// written from the name as shown, and the shown name has none of the
+// zero-width characters the core's name is full of: they go first, or
+// "官方" could never match "官\u200b方" and "HKG" not "H\u200bK\u200bG". The
+// passes then repeat until s stops changing: a rule may only match once
+// another has run — the one dropping the zero-width characters, say — and
+// that one is only first in the list by luck. The name the core goes by
+// keeps what it was given, so choices, rules and the running config are
+// unchanged; only what the interface shows drops it.
 func (a *App) stripped(s string) string {
 	rules := a.strip.Load()
 	if rules == nil || len(*rules) == 0 {
 		return s
 	}
-	for _, re := range *rules {
-		if re != nil {
-			s = re.ReplaceAllString(s, "")
+	s = geo.StripInvisible(s)
+	for range 4 {
+		next := s
+		for _, re := range *rules {
+			if re != nil {
+				next = re.ReplaceAllString(next, "")
+			}
 		}
+		if next == s {
+			return s
+		}
+		s = next
 	}
 	return s
 }
