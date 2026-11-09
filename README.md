@@ -23,6 +23,10 @@ bowel is a <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> client for m
 
 The interface is built in Go and rendered directly via the GPU, with no WebView.
 
+> **This fork also builds for Windows.** The installer and everything else that
+> changed on the way there — TUN included — is under
+> [Windows](#windows-this-fork).
+
 ## Features
 
 ### Routes
@@ -78,6 +82,67 @@ Six skins that change the look of the whole interface.
 2. Add a provider (a subscription URL, node links or a QR code) and turn on takeover.
 
 Needs macOS 12 or later. Released builds are for Apple silicon, signed with a Developer ID and notarized by Apple.
+
+## Windows (this fork)
+
+There is no upstream Windows build; this tree makes one.
+
+```bash
+GOOS=windows GOARCH=amd64 ./scripts/fetch-core.sh   # mihomo.exe into resources/windows-amd64/bin
+# put wintun.dll (0.14.1 amd64, wintun.net) beside it — TUN needs it
+go tool mygo build -platform windows/amd64 -o build .
+# → build/windows-amd64/bowel-setup-<version>-amd64.exe   (NSIS installer)
+# → build/windows-amd64/bowel.exe                          (portable)
+```
+
+Needs Windows 10 or later, amd64. The installer puts bowel in `%LOCALAPPDATA%`
+or the directory you pick, and runs the shortcut as administrator so TUN can
+open a device.
+
+### What the port needed
+
+- **Delay test**: `ping.exe` runs with `CREATE_NO_WINDOW` and its delay is read
+  out of the output whatever language the line is in. A console per node used
+  to flash onto the screen for every test round.
+- **TUN**: the core's own copy and `wintun.dll` are staged in
+  `%APPDATA%\bowel\bin`, and a device is opened only when bowel itself is
+  elevated. Without elevation the switch explains why rather than failing.
+- **TUN, on the way out**: the core is asked to drop the tunnel *before* it is
+  stopped, and the routes a killed core leaves behind are taken back on the
+  next start. Windows has no SIGTERM, so stopping the core used to be
+  `Process.Kill()`: the adapter and a default route through `198.18.0.2` (metric
+  0, ahead of the LAN's 35) stayed behind, and every packet went into a tunnel
+  with no session — which reads as "turning TUN off breaks the network".
+- **A resolver, TUN or no TUN**: the core always gets a `dns:` section of its
+  own. It needs one for the nodes' names, not only for traffic: a node whose
+  server is a domain cannot be dialled without it, and VLESS' ECH asks DNS for
+  its config before the TLS handshake starts. With TUN off and the built-in DNS
+  switch off, exactly those nodes failed to test while every other provider was
+  fine.
+- **Kernel logs**: the Windows build hides the console it runs the core in, and
+  the log page reads the core's own stream instead.
+
+### What else is here on top of 0.2.0
+
+- **Exit address quality**: the manifest asks one address service the settings
+  name (ip-api.com by default; ipwho.is, ip.sb and ipapi.co also work) whether
+  the exit is a data centre or a home line and whether it is listed as a proxy,
+  then grades it — excellent, good, fair, poor — together with the node's
+  delay. Off by default, since it sends the exit address outside.
+- **More presets**: the test URL, the exit lookup URL and the quality lookup
+  URL each have a picker of common addresses beside the field, and any other
+  address can still be typed.
+- **Provider addresses**: a column showing `host:port` exactly as the
+  subscription has it, read from the file (Clash YAML, link lists, or a whole
+  base64 blob) and cached until the file changes.
+- **Clearing the lists**: the eraser above the tabs empties what the page
+  shows. What has ended goes on the first click; live connections and "all"
+  ask for a second one, and neither disconnects anything.
+- **Your own place**: it is re-measured once the tunnel has settled and every
+  ten minutes after that, so switching TUN on no longer leaves the map showing
+  the node's country instead of yours.
+- **Region names**: zero-width characters are dropped before matching, so a
+  node named `H​K` or `日​本` is still recognised.
 
 ## Develop
 

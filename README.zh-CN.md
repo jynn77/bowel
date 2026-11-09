@@ -23,6 +23,9 @@ bowel 是 macOS 上的 <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> 
 
 界面使用 Go 开发并通过 GPU 渲染，不使用 WebView。
 
+> **本分支同时构建 Windows 版**，TUN 一并支持。安装包和移植过程中的其他改动见
+> [Windows（本分支）](#windows本分支)。
+
 ## 界面与功能
 
 ### 路由
@@ -78,6 +81,37 @@ bowel 是 macOS 上的 <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> 
 2. 打开后添加一个 Provider（订阅链接、节点链接或扫码），打开接管。
 
 需要 macOS 12 或更新版本，目前发布的是 Apple 芯片版本。安装包用 Developer ID 签名，并经过 Apple 公证。
+
+## Windows（本分支）
+
+上游没有 Windows 版，本分支补上了。
+
+```bash
+GOOS=windows GOARCH=amd64 ./scripts/fetch-core.sh   # 内核取到 resources/windows-amd64/bin
+# 再把 wintun.dll（0.14.1 amd64，取自 wintun.net）放到同一目录 —— TUN 需要它
+go tool mygo build -platform windows/amd64 -o build .
+# → build/windows-amd64/bowel-setup-<版本>-amd64.exe   （NSIS 安装包）
+# → build/windows-amd64/bowel.exe                      （免安装版）
+```
+
+需要 Windows 10 或更新版本（amd64）。安装包默认装在 `%LOCALAPPDATA%` 或你选的目录，快捷方式带管理员权限，TUN 才能打开虚拟网卡。
+
+### 移植时解决了什么
+
+- **测速**：`ping.exe` 以 `CREATE_NO_WINDOW` 运行，延迟从输出里按正则取，不受系统语言影响。以前每测一个节点就闪一个命令行窗口。
+- **TUN**：把内核副本和 `wintun.dll` 放到 `%APPDATA%\bowel\bin`，只有 bowel 自身提权时才开网卡。没提权时开关会说明原因，而不是直接失败。
+- **关 TUN**：先让内核自己把隧道拆掉，再停内核；崩溃或强杀留下的路由，下次启动时收回。Windows 没有 SIGTERM，以前停内核就是 `Process.Kill()`——适配器和 `198.18.0.2` 的默认路由（metric 0，压过 WLAN 的 35）留在系统里，所有包进了一条没有会话的隧道，表现就是「关掉 TUN 就没网」。
+- **解析器**：无论开不开 TUN，内核始终带自己的 `dns:` 段。它不只是给流量用的——节点域名要解析，VLESS 的 ECH 还要在 TLS 握手前先查 DNS 记录。以前 TUN 关、内置 DNS 也关时，恰好这批节点测速全挂，别的订阅却正常。
+- **内核日志**：Windows 版把内核的控制台隐藏，日志页直接读内核自己的输出流。
+
+### 相对 0.2.0 的其他改动
+
+- **出口地址质量**：用设置里指定的一个地址服务（默认 ip-api.com，也可换 ipwho.is / ip.sb / ipapi.co）判断出口是机房还是家宽、有没有被标记为代理，再结合节点延迟给出「优秀 / 良好 / 一般 / 较差」。默认关闭——开启后会把出口 IP 发到外面。
+- **更多预设**：测速地址、出口测试地址、质量检测地址三者都是「常用地址下拉 + 文本框」，也可以自己填。
+- **订阅地址列**：提供商页多一列 `host:port`，跟订阅文件里一致（Clash YAML、纯链接列表、整体 base64 都支持），按文件大小与修改时间缓存。
+- **清理列表**：标签上方的橡皮擦清空当前页列出的内容。已经结束的连接一次点击即清；活跃和全部需要再点一次确认，两者都不会断开连接。
+- **我的位置**：隧道稳定后会重测一次，之后每 10 分钟校正，开 TUN 后不再把节点所在国家当成你的位置。
+- **地区识别**：匹配前剔除零宽字符，`H​K`、`日​本` 这类名字也能认出来。
 
 ## 开发
 
