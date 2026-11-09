@@ -75,8 +75,12 @@ type App struct {
 	locating    map[string]bool
 	qualifying  bool // a quality lookup is under way: one at a time
 	sys         sysproxy.Status
-	proxies     map[string]mihomo.Proxy
-	provNodes   map[string][]string // provider id → node names, in the provider's order
+	// sysErr is why the last change of the system proxy failed. The
+	// interface says so instead of leaving "another program changed it"
+	// as the only reading of a switch that did nothing.
+	sysErr    string
+	proxies   map[string]mihomo.Proxy
+	provNodes map[string][]string // provider id → node names, in the provider's order
 	// nodesSig is the names /proxies had when provNodes was read, at
 	// nodesAt: the providers' lists are read again when they change.
 	nodesSig uint64
@@ -558,20 +562,75 @@ func (a *App) applySystemProxy(prev ...int) {
 	want := a.takeoverOn(s) && s.SystemProxy
 	cur, err := sysproxy.Check(s.MixedPort)
 	if err != nil {
+		a.noteSystemProxy(cur, fmt.Errorf("reading the system proxy: %w", err))
 		return
 	}
+	state := fmt.Sprintf("want=%v paused=%v systemProxy=%v port=%d cur={on:%v ours:%v %s:%d}",
+		want, s.Paused, s.SystemProxy, s.MixedPort, cur.On, cur.Ours, cur.Host, cur.Port)
+	step := "nothing to do"
+	var opErr error
 	switch {
 	case want && !cur.Ours:
-		if err := a.enableProxy(s, prev...); err != nil {
-			log.Println("system proxy:", err)
-		}
+		step = "enable"
+		opErr = a.enableProxy(s, prev...)
 	case !want && cur.Ours:
-		if err := a.disableProxy(context.Background(), s.MixedPort); err != nil {
-			log.Println("system proxy:", err)
-		}
+		step = "disable"
+		opErr = a.disableProxy(context.Background(), s.MixedPort)
 	case !want:
 		a.dropProxyBackup() // left by a crash, and the proxy has moved on since
+		step = "drop the backup"
 	}
+	// Read it again before the interface draws: a switch that was just
+	// flipped must not read as "another program changed it" for the second
+	// or two until the next poll.
+	now, cerr := sysproxy.Check(s.MixedPort)
+	switch {
+	case cerr != nil:
+		a.writeSystemProxyLog(fmt.Sprintf("%s | %s | after: %v | err: %v", step, state, cerr, opErr))
+		a.noteSystemProxy(cur, errors.Join(opErr, cerr))
+	case opErr != nil || (want && !now.Ours):
+		// What was asked for did not happen: say why, in the log and on
+		// the screen, rather than letting another program take the blame.
+		a.writeSystemProxyLog(fmt.Sprintf("%s | %s | after={on:%v ours:%v %s:%d} | err: %v",
+			step, state, now.On, now.Ours, now.Host, now.Port, opErr))
+		if opErr == nil {
+			opErr = fmt.Errorf("the change did not take: the proxy is %v, ours %v", now.On, now.Ours)
+		}
+		a.noteSystemProxy(now, opErr)
+	default:
+		a.noteSystemProxy(now, nil)
+	}
+}
+
+// noteSystemProxy records what the system proxy is now and, when a change
+// was asked for and did not happen, why. A windowed build has no console for
+// log.Println, so the reason would otherwise be lost and the screen could
+// only say that something else changed the proxy.
+func (a *App) noteSystemProxy(st sysproxy.Status, err error) {
+	a.mu.Lock()
+	a.sys = st
+	if err != nil {
+		a.sysErr = err.Error()
+	} else {
+		a.sysErr = ""
+	}
+	a.mu.Unlock()
+}
+
+// writeSystemProxyLog appends a line to sysproxy.log, which is what to ask
+// for when the switch does nothing: a windowed build has no console.
+func (a *App) writeSystemProxyLog(msg string) {
+	path := filepath.Join(a.dataDir, "sysproxy.log")
+	f, e := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if e != nil {
+		return
+	}
+	defer f.Close()
+	if st, e := f.Stat(); e == nil && st.Size() > 32<<10 {
+		_ = f.Truncate(0)
+		_, _ = f.Seek(0, 0)
+	}
+	_, _ = f.WriteString(time.Now().Format("2006-01-02 15:04:05") + " " + msg + "\n")
 }
 
 // proxyBackup is the system proxy as it was before Moho took it over. It is
@@ -1726,7 +1785,7 @@ func (a *App) snapshot() Snapshot {
 	s := a.settings.Get()
 	cs := a.core.Status()
 	a.mu.Lock()
-	sys, px, provNodes, you, sw := a.sys, a.proxies, a.provNodes, a.you, a.switched
+	sys, sysErr, px, provNodes, you, sw := a.sys, a.sysErr, a.proxies, a.provNodes, a.you, a.switched
 	pings, sites := a.pings, a.sites
 	openAtLogin := a.openAtLogin
 	gwp, gwErr := a.gwProbe, a.gwErr
@@ -1761,6 +1820,11 @@ func (a *App) snapshot() Snapshot {
 			tk.System.Status, tk.System.Detail = "hijacked", fmt.Sprintf(i18n.T("现在指向 %s:%d", "Now points at %s:%d"), sys.Host, sys.Port)
 		default:
 			tk.System.Status, tk.System.Detail = "hijacked", i18n.T("系统代理被关掉了", "The system proxy was turned off")
+		}
+		// A change that failed says why, rather than leaving the reader to
+		// blame another program for it.
+		if sysErr != "" {
+			tk.System.Detail += " · " + sysErr
 		}
 	}
 	installed := tun.Installed(a.tunBin)

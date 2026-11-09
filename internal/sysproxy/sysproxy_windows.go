@@ -17,6 +17,7 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 // DefaultBypass is what a service gets back when Forget clears one that
@@ -113,11 +114,85 @@ func apply(ws winSettings) error {
 	bypass, bu := strOption(connBypass, ws.override)
 	pac, pu := strOption(connPAC, ws.pac)
 	opts := []perConnOption{{option: connFlags, value: [8 / ptrSize]uintptr{uintptr(ws.flags)}}, server, bypass, pac}
-	return write(opts, su, bu, pu)
+	if err := write(opts, su, bu, pu); err != nil {
+		// WinINet refused the per-connection write. An elevated process
+		// does that on some machines, and then the switch looked like it
+		// did nothing at all. The registry holds the same setting, so it
+		// is written directly and announced the same way.
+		return writeRegistry(ws)
+	}
+	return nil
 }
 
-// read reads the LAN settings.
+// internetKey is where WinINet keeps the LAN settings, and where Windows'
+// own settings page reads them.
+const internetKey = `Software\Microsoft\Windows\CurrentVersion\Internet Settings`
+
+// readRegistry reads the settings the per-connection call would have given,
+// for when that call fails.
+func readRegistry() (winSettings, error) {
+	k, err := registry.OpenKey(registry.CURRENT_USER, internetKey, registry.QUERY_VALUE)
+	if err != nil {
+		return winSettings{}, err
+	}
+	defer k.Close()
+	ws := winSettings{flags: winDirect}
+	if d, _, err := k.GetIntegerValue("ProxyEnable"); err == nil && d != 0 {
+		ws.flags |= winProxy
+	}
+	ws.server, _, _ = k.GetStringValue("ProxyServer")
+	ws.override, _, _ = k.GetStringValue("ProxyOverride")
+	ws.pac, _, _ = k.GetStringValue("AutoConfigURL")
+	// Whether the script is switched on lives in the blob alone: a URL by
+	// itself is not taken as on, so that this reading never calls a proxy
+	// that is ours "hijacked".
+	return ws, nil
+}
+
+// writeRegistry writes the settings without WinINet.
+func writeRegistry(ws winSettings) error {
+	k, _, err := registry.CreateKey(registry.CURRENT_USER, internetKey, registry.SET_VALUE)
+	if err != nil {
+		return fmt.Errorf("writing the system proxy: %w", err)
+	}
+	defer k.Close()
+	var on uint32
+	if ws.flags&winProxy != 0 {
+		on = 1
+	}
+	if err := k.SetDWordValue("ProxyEnable", on); err != nil {
+		return err
+	}
+	for _, v := range []struct{ name, value string }{
+		{"ProxyServer", ws.server},
+		{"ProxyOverride", ws.override},
+		{"AutoConfigURL", ws.pac},
+	} {
+		if v.value == "" {
+			_ = k.DeleteValue(v.name) // absent, as Windows leaves it
+			continue
+		}
+		if err := k.SetStringValue(v.name, v.value); err != nil {
+			return err
+		}
+	}
+	_ = setOption(optSettingsChanged, nil, 0)
+	_ = setOption(optRefresh, nil, 0)
+	return nil
+}
+
+// read reads the LAN settings, through WinINet, or from the registry when it
+// will not answer.
 func read() (winSettings, error) {
+	ws, err := readWinINet()
+	if err == nil {
+		return ws, nil
+	}
+	return readRegistry()
+}
+
+// readWinINet reads the LAN settings.
+func readWinINet() (winSettings, error) {
 	query := func(flagsOption uint32) ([]perConnOption, error) {
 		opts := []perConnOption{{option: flagsOption}, {option: connServer}, {option: connBypass}, {option: connPAC}}
 		list := perConnOptionList{count: uint32(len(opts)), options: &opts[0]}
@@ -155,11 +230,13 @@ func read() (winSettings, error) {
 }
 
 // Enable points the LAN settings' proxies at host:port, with the hosts and
-// networks in bypass left out of them. It turns automatic configuration
-// off, which would come before them; Restore turns it back on.
+// networks in bypass left out of them. It clears any automatic configuration
+// the machine had: a script comes before the fixed proxies, and one left in
+// place is read back as someone else's proxy — which the app then reports as
+// hijacked, after its own write. Snapshot keeps the script, so Restore puts
+// it back.
 func Enable(host string, port int, bypass []string) error {
-	cur, err := read()
-	if err != nil {
+	if _, err := read(); err != nil {
 		return err
 	}
 	e := Endpoint{On: true, Host: host, Port: port}
@@ -167,7 +244,7 @@ func Enable(host string, port int, bypass []string) error {
 		flags:    winDirect | winProxy,
 		server:   winServer(e, e, Endpoint{}),
 		override: winBypass(bypass),
-		pac:      cur.pac, // kept for Windows' settings page, unused
+		pac:      "",
 	})
 }
 
