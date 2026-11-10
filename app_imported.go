@@ -217,7 +217,7 @@ func (a *App) importedIssue(s settings.Settings, snap Snapshot) *Issue {
 	}
 	for _, p := range snap.Providers {
 		if p.ID == s.ImportedRouting && p.Error != "" {
-			return &Issue{Level: "warn", Text: fmt.Sprintf(i18n.T("%s 这次更新没有应用，路由没有变化", "%s: the last update wasn't applied; the routing is unchanged"), p.Name), Detail: p.Error, Action: "providers", Label: i18n.T("查看", "View")}
+			return &Issue{Level: "warn", Text: fmt.Sprintf(i18n.T("%s 这次更新没有应用，路由没有变化", "%s: the last update wasn't applied; the routing is unchanged"), a.providerShown(p.ID)), Detail: p.Error, Action: "providers", Label: i18n.T("查看", "View")}
 		}
 	}
 	return nil

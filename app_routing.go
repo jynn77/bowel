@@ -254,6 +254,8 @@ func (a *App) brokenIssue(r RouteView, nodes []NodeView, also int) *Issue {
 		name := r.Policy.Fixed
 		if n := slices.IndexFunc(nodes, func(n NodeView) bool { return n.Name == name }); n >= 0 {
 			name = nodes[n].Display
+		} else {
+			name = a.stripped(display(name)) // gone from the list: still not the name itself
 		}
 		is.Text = fmt.Sprintf(i18n.T("「%s」固定的 %s 不通", "%s: its fixed node %s is down"), r.Name, name)
 		is.Detail = i18n.T("固定节点不会自动切换，这个路由组现在连不上。", "A fixed node doesn't switch by itself, so this route group can't connect now.")
@@ -263,7 +265,7 @@ func (a *App) brokenIssue(r RouteView, nodes []NodeView, also int) *Issue {
 		is.Detail = i18n.T("这个路由组现在连不上。", "This route group can't connect now.")
 		is.Label = i18n.T("调整顺序", "Edit order")
 	default:
-		is.Text = fmt.Sprintf(i18n.T("「%s」的范围（%s）里没有可用节点", "%s: no usable node in its range (%s)"), r.Name, scopeWord(r.Policy, a.providerTitle))
+		is.Text = fmt.Sprintf(i18n.T("「%s」的范围（%s）里没有可用节点", "%s: no usable node in its range (%s)"), r.Name, scopeWord(r.Policy, a.providerShown))
 		is.Detail = i18n.T("范围不会被悄悄放宽，这个路由组现在连不上。", "A range is never widened on its own, so this route group can't connect now.")
 		is.Label = i18n.T("改范围", "Change range")
 	}

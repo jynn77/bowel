@@ -263,6 +263,26 @@ func TestHeader(t *testing.T) {
 	shot(t, tt, "header-providers")
 }
 
+// A notice is news, not a state: when the issue behind it is gone, so is it.
+func TestNoticeGoesAway(t *testing.T) {
+	u := fixtureUI()
+	text := "默认：[机场A]香港01不可用，已经切换到[机场B]东京02"
+	u.snap.State = StateDegraded
+	u.snap.Issue = &Issue{Level: "warn", Text: text, Action: "activity", Label: "查看"}
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	if !tt.HasText("[机场A]香港01") {
+		t.Fatalf("the notice is not shown: %q", tt.Texts())
+	}
+	u.snap.State = StateOK
+	u.snap.Issue = nil
+	tt.Frame()
+	tt.Advance(time.Second) // past the exit motion
+	if tt.HasText("[机场A]香港01") {
+		t.Error("the notice is still there after the issue is gone")
+	}
+}
+
 // TestSharedPiecesKeepUp: the pieces shared between a cell's views, as
 // the exit's name, go with the cell as it moves and get to their places
 // as its box does, on the same curve, rather than chasing them.
