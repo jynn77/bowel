@@ -173,14 +173,14 @@ func TestRecordKeepsTheDevicesPlace(t *testing.T) {
 	if r := l.Guess("DIRECT", ""); r.Place != nil {
 		t.Fatalf("known before any measurement: %+v", r)
 	}
-	if _, err := l.record("DIRECT", "ip=203.0.113.9\nloc=JP\ncolo=NRT\n"); err != nil {
+	if _, err := l.record("DIRECT", DefaultSource, []byte("ip=203.0.113.9\nloc=JP\ncolo=NRT\n")); err != nil {
 		t.Fatal(err)
 	}
 	r := New(l.path).Guess("DIRECT", "")
 	if r.Source != SourceProbe || r.Place == nil || r.Place.Country != "JP" {
 		t.Fatalf("after a trace, from the file: %+v", r)
 	}
-	if _, err := l.record("x", "nothing useful"); err == nil {
+	if _, err := l.record("x", DefaultSource, []byte("nothing useful")); err == nil {
 		t.Fatal("a trace with no ip or loc was accepted")
 	}
 }
