@@ -116,7 +116,9 @@ func detectTailscale(ctx context.Context) Tailscale {
 			continue
 		}
 		c, cancel := context.WithTimeout(ctx, 3*time.Second)
-		out, err := exec.CommandContext(c, path, "status", "--json").Output()
+		cmd := exec.CommandContext(c, path, "status", "--json")
+		hideWindow(cmd)
+		out, err := cmd.Output()
 		cancel()
 		if err != nil && len(out) == 0 {
 			return Tailscale{Installed: true}
