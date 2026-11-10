@@ -35,7 +35,7 @@ final class ShellController: UITabBarController, UITabBarControllerDelegate {
     super.viewDidLoad()
     delegate = self
     viewControllers = [
-      tab("今日", symbol: "gauge.with.needle.fill"),
+      tab("代理", symbol: "gauge.with.needle.fill"),
       tab("活动", symbol: "waveform"),
       tab("Provider", symbol: "square.stack.3d.up.fill"),
       tab("设置", symbol: "gearshape.fill"),
@@ -47,16 +47,9 @@ final class ShellController: UITabBarController, UITabBarControllerDelegate {
     setBar(hidden: true)
     let paper = (prefs.object(forKey: paperKey) as? Int).map(UIColor.init(argb:)) ?? UIColor(named: "LaunchBackground") ?? .systemBackground
     view.backgroundColor = paper
-    // The launch screen's logo stays in place until the first frame.
+    // Blank until the first frame, where Flutter starts drawing the logo.
     let splash = UIView()
     splash.backgroundColor = paper
-    let logo = UIImageView(image: UIImage(named: "LaunchImage"))
-    logo.translatesAutoresizingMaskIntoConstraints = false
-    splash.addSubview(logo)
-    NSLayoutConstraint.activate([
-      logo.centerXAnchor.constraint(equalTo: splash.centerXAnchor),
-      logo.centerYAnchor.constraint(equalTo: splash.centerYAnchor),
-    ])
     flutter.splashScreenView = splash
 
     addChild(flutter)

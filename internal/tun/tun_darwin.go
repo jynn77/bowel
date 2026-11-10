@@ -56,7 +56,11 @@ func Install(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	return Admin(Prompt(), step)
+	if err := Admin(Prompt(), step); err != nil {
+		_ = os.Remove(step[1]) // the copy; dst is as it was
+		return err
+	}
+	return nil
 }
 
 // InstallStep copies src to dst as Install does and returns what is left
@@ -66,18 +70,19 @@ func InstallStep(src, dst string) (Step, error) {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return nil, err
 	}
-	// Copy beside dst and rename over it: dst may be an older root-owned
-	// copy, which cannot be written to but can be replaced, the directory
-	// being the user's.
+	// What an authorization that was refused left behind.
+	if old, err := filepath.Glob(filepath.Join(filepath.Dir(dst), ".mihomo-*")); err == nil {
+		for _, p := range old {
+			_ = os.Remove(p)
+		}
+	}
+	// A copy beside dst, which becomes dst only once it is root's: dst may
+	// be the copy TUN runs on now, and must outlive a refused authorization.
 	tmp, err := copyTemp(src, filepath.Dir(dst))
 	if err != nil {
 		return nil, err
 	}
-	if err := os.Rename(tmp, dst); err != nil {
-		_ = os.Remove(tmp)
-		return nil, err
-	}
-	return installStep(dst), nil
+	return installStep(tmp, dst), nil
 }
 
 // Step is one shell command run as root: its parts alternate between
@@ -164,11 +169,11 @@ func adminScript(prompt string, steps ...Step) string {
 	return "do shell script " + strings.Join(exprs, ` & " && " & `) + " with prompt " + appleString(prompt) + " with administrator privileges"
 }
 
-func installStep(dst string) Step {
-	return Step{"/usr/sbin/chown root:admin ", dst, " && /bin/chmod 4755 ", dst}
+func installStep(tmp, dst string) Step {
+	return Step{"/usr/sbin/chown root:admin ", tmp, " && /bin/chmod 4755 ", tmp, " && /bin/mv -f ", tmp, " ", dst}
 }
 
-func installScript(dst string) string { return adminScript(Prompt(), installStep(dst)) }
+func installScript(tmp, dst string) string { return adminScript(Prompt(), installStep(tmp, dst)) }
 
 func uninstallScript(dst string) string {
 	return adminScript(Prompt(), Step{"/bin/rm -f ", dst})

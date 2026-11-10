@@ -20,6 +20,11 @@ const (
 	probeTimeout = 12 * time.Second
 	// probeRetry is how long a node whose probe failed is left alone.
 	probeRetry = 10 * time.Minute
+	// directNode is the name the core and the location cache give the phone's own way out.
+	directNode = "DIRECT"
+	// youEvery is how long a measured place of the phone is kept before
+	// measuring again: phones travel.
+	youEvery = 6 * time.Hour
 )
 
 // lockProbe gives the probe listener a password. Unlike on a Mac, any app on
@@ -80,6 +85,7 @@ func (x *bridge) locateExits() {
 		return
 	}
 	defer x.locating.Store(false)
+	x.locateYou()
 	c, err := x.core()
 	if err != nil {
 		return
@@ -102,6 +108,48 @@ func (x *bridge) locateExits() {
 	if found {
 		x.push()
 	}
+}
+
+// locateYou measures where the phone is, for the map's starting point. With
+// the core up it goes out through the core's DIRECT, as this app's own traffic
+// would otherwise leave through the node. With the VPN off there is no core
+// and nothing in the way, so the app asks itself. In between it waits: a
+// request made now could leave through a tunnel that's coming up.
+func (x *bridge) locateYou() {
+	r := x.loc.Guess(directNode, "")
+	if r.Source == locate.SourceProbe && r.Place != nil && time.Since(r.At) < youEvery {
+		return
+	}
+	c, _ := x.core()
+	x.mu.Lock()
+	off := x.vpn == "off"
+	if (c == nil && !off) || time.Since(x.youProbed) < probeRetry {
+		x.mu.Unlock()
+		return
+	}
+	x.youProbed = time.Now()
+	x.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	var got locate.Result
+	if c != nil {
+		got, _ = x.loc.Probe(ctx, c, probePort, directNode)
+	} else {
+		got, _ = x.loc.Direct(ctx)
+	}
+	if got.Place != nil {
+		x.push()
+	}
+}
+
+// youPlace is where the phone was last measured to be, nil if that's unknown.
+func (x *bridge) youPlace() *placeData {
+	r := x.loc.Guess(directNode, "")
+	if r.Source != locate.SourceProbe || r.Place == nil {
+		return nil
+	}
+	p := r.Place
+	return &placeData{Country: p.Country, City: p.City, Flag: p.Flag, Lat: p.Lat, Lon: p.Lon}
 }
 
 // probeNode reports whether it learned the node's place.

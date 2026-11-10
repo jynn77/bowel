@@ -246,3 +246,76 @@ func TestRejectGroup(t *testing.T) {
 		t.Error("a group with no node took test sites")
 	}
 }
+
+func withRuleSet(t *testing.T, group string) (Plan, string) {
+	t.Helper()
+	var p Plan
+	return p, p.AddRuleSet(nil, group, "AI list", "https://x.example/ai.yaml")
+}
+
+func TestRuleSetIsAServiceOfItsGroup(t *testing.T) {
+	p, id := withRuleSet(t, "ai")
+	all := Build(p, nil)
+	s, ok := FindSource(all, "https://x.example/ai.yaml")
+	if !ok || s.ID != id || s.Group != "ai" || s.Builtin {
+		t.Fatalf("%+v %v", s, ok)
+	}
+	if got, ok := FindMatched(all, "RuleSet", RuleSetProvider(id)); !ok || got.ID != id {
+		t.Errorf("a connection the core matched by the set: %+v %v", got, ok)
+	}
+	p.MoveService(nil, id, "media")
+	if s, _ := FindSource(Build(p, nil), "https://x.example/ai.yaml"); s.Group != "media" {
+		t.Errorf("moved to %s", s.Group)
+	}
+	p.ToggleService(id)
+	if lines := Lines(Build(p, nil), nil); slices.ContainsFunc(lines, func(l Line) bool { return l.Set == id }) {
+		t.Error("a set switched off still has a line")
+	}
+	if !p.Clone().findService(id).Off || p.findService(id).Source == "" {
+		t.Errorf("%+v", p.findService(id))
+	}
+	if users := p.RemoveService(nil, id); len(users) != 0 || p.findService(id).ID != "" {
+		t.Error("not removed")
+	}
+}
+
+// With a set in use the user's rules come first, whatever kind, and what
+// ships last. Without one the order is what it always was.
+func TestLinesOrderWithARuleSet(t *testing.T) {
+	users := []UserRule{{Kind: KindKeyword, Value: "corp", Route: "direct"}}
+	plain := Lines(Build(Plan{}, users), users)
+	if slices.IndexFunc(plain, func(l Line) bool { return l.Mine }) == 0 {
+		t.Fatal("a keyword should sort after the built-in names when no set is in use")
+	}
+	p, id := withRuleSet(t, "ai")
+	lines := Lines(Build(p, users), users)
+	if !lines[0].Mine {
+		t.Errorf("first: %+v", lines[0])
+	}
+	if lines[1].Set != id || lines[1].Text != "RULE-SET,"+RuleSetProvider(id)+",no-resolve" || lines[1].Route != "ai" {
+		t.Errorf("second: %+v", lines[1])
+	}
+	if rest := lines[2:]; slices.ContainsFunc(rest, func(l Line) bool { return l.Mine || l.Set != "" }) {
+		t.Error("what ships should be all that's left")
+	}
+}
+
+func TestExplainLooksInsideRuleSets(t *testing.T) {
+	p, id := withRuleSet(t, "media")
+	all := Build(p, nil)
+	match := func(set, host, ip string) (string, bool) {
+		return "DOMAIN-SUFFIX,anthropic.com", set == id && host == "api.anthropic.com"
+	}
+	r, rule, set, mine, sure := ExplainSets("api.anthropic.com", nil, all, match)
+	if r != "media" || rule != "DOMAIN-SUFFIX,anthropic.com" || set != id || mine || !sure {
+		t.Errorf("%s %s %s %v %v", r, rule, set, mine, sure)
+	}
+	// A rule set says nothing: on to what ships.
+	if r, _, set, _, _ := ExplainSets("chat.openai.com", nil, all, match); r != "ai" || set != "" {
+		t.Errorf("%s %s", r, set)
+	}
+	// Without a way to look inside, as on mobile.
+	if r, _, _, _ := Explain("api.anthropic.com", nil, all); r != "ai" {
+		t.Errorf("%s", r)
+	}
+}

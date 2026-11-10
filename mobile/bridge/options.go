@@ -5,8 +5,9 @@ package bridge
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -94,16 +95,83 @@ func (x *bridge) flushDNS(ctx context.Context) error {
 }
 
 func (x *bridge) updateGeo() error {
-	if !canUpdateGeo {
-		return errors.New(i18n.T("这台设备不能更新 Geo 数据", "Geo data can't be updated on this device"))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if runtime.GOOS == "ios" {
+		o := x.set.Get()
+		return fetchGeoFiles(ctx, x.dir, o.GeoSiteURL, o.GeoIPURL)
 	}
 	c, err := x.core()
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
 	return c.UpdateGeo(ctx)
+}
+
+// fetchGeoFiles downloads the rule data into dir. The core runs in the iOS
+// extension, which can't spare the memory to download it, so the app does; the
+// core reads the new files when it next starts. Nothing is replaced unless
+// both files came down whole.
+func fetchGeoFiles(ctx context.Context, dir, siteURL, ipURL string) error {
+	files := []struct {
+		url, name string
+		limit     int64
+	}{{siteURL, "GeoSite.dat", maxGeoSite}, {ipURL, "GeoIP.dat", maxGeoIP}}
+	temps := make([]string, 0, len(files))
+	defer func() {
+		for _, t := range temps {
+			_ = os.Remove(t)
+		}
+	}()
+	for _, f := range files {
+		t, err := fetchGeoFile(ctx, dir, f.url, f.name, f.limit)
+		if err != nil {
+			return err
+		}
+		temps = append(temps, t)
+	}
+	for i, f := range files {
+		if err := os.Rename(temps[i], filepath.Join(dir, f.name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func fetchGeoFile(ctx context.Context, dir, from, name string, limit int64) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, from, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("%s: HTTP %d", name, resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return "", err
+	}
+	if int64(len(body)) > limit {
+		return "", fmt.Errorf("%s: %s", name, i18n.T("文件太大，VPN 的内存放不下，请换精简版的地址", "too large for the VPN's memory, use a smaller list"))
+	}
+	// Both are protobuf lists: a field 1 of bytes comes first. A web page doesn't.
+	if len(body) < 1024 || body[0] != 0x0a {
+		return "", fmt.Errorf("%s: %s", name, i18n.T("下载到的不是 Geo 数据", "what came down isn't Geo data"))
+	}
+	t, err := os.CreateTemp(dir, name+".*")
+	if err != nil {
+		return "", err
+	}
+	defer t.Close()
+	if _, err := t.Write(body); err != nil {
+		_ = os.Remove(t.Name())
+		return "", err
+	}
+	return t.Name(), nil
 }
 
 // shareData is what shares a Provider: its text, and that text's QR code as
@@ -155,6 +223,11 @@ func decodeQR(path string) decodedData {
 	return decodedData{Text: texts[0]}
 }
 
-// canUpdateGeo: the iOS extension has too little memory to load fresh rule
-// data while it runs, so there the data stays what the app shipped.
-var canUpdateGeo = runtime.GOOS != "ios"
+// canUpdateGeo: every platform can now; iOS downloads in the app.
+const canUpdateGeo = true
+
+// What the iOS extension can afford to read, about twice what it ships with.
+const (
+	maxGeoSite = 9 << 20
+	maxGeoIP   = 1 << 20
+)

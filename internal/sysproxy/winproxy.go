@@ -143,9 +143,11 @@ func winServer(web, secure, socks Endpoint) string {
 
 // winBypass turns Moho's bypass list into ProxyOverride entries. WinINet
 // matches wildcards, not networks, so an IPv4 network becomes the
-// wildcards that cover it (10.0.0.0/8 → 10.*); IPv6 networks, which it
-// cannot match, are left out. <local>, the names without a dot, is added,
-// as Windows' "Don't use the proxy server for local addresses" does.
+// wildcards that cover it (10.0.0.0/8 → 10.*). IPv6 networks, which it
+// cannot match, are left out, and so are IPv6 addresses: one of those in
+// ProxyOverride makes InternetSetOption refuse the whole call with
+// ERROR_INVALID_PARAMETER. <local>, the names without a dot, is added, as
+// Windows' "Don't use the proxy server for local addresses" does.
 func winBypass(list []string) string {
 	var out []string
 	add := func(s string) {
@@ -154,7 +156,7 @@ func winBypass(list []string) string {
 		}
 	}
 	for _, b := range list {
-		if b = strings.TrimSpace(b); b == "" {
+		if b = strings.TrimSpace(b); b == "" || isIPv6Entry(b) {
 			continue
 		}
 		if !strings.Contains(b, "/") {
@@ -167,6 +169,13 @@ func winBypass(list []string) string {
 	}
 	add("<local>")
 	return strings.Join(out, ";")
+}
+
+// isIPv6Entry reports whether a bypass entry names an IPv6 address, bracketed
+// or not, wildcards included (::1, [::1], fe80::*). One colon is a host and
+// port (example.com:8080), which WinINet takes.
+func isIPv6Entry(b string) bool {
+	return strings.HasPrefix(b, "[") || strings.Count(b, ":") >= 2
 }
 
 // wildcards covers an IPv4 network with WinINet wildcards. It accepts

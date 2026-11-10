@@ -251,18 +251,34 @@ func Remove(rules []UserRule, r UserRule) []UserRule {
 // domain and address ones. sure is false when GeoSite or GeoIP data would
 // decide; route is then "".
 func Explain(host string, user []UserRule, tpl []Route) (route, rule string, mine, sure bool) {
+	route, rule, _, mine, sure = ExplainSets(host, user, tpl, nil)
+	return route, rule, mine, sure
+}
+
+// ExplainSets is Explain, looking inside rule sets with match, which says
+// which rule of set id catches host at ip. set is the id of the set that
+// decided, if one did.
+func ExplainSets(host string, user []UserRule, tpl []Route, match func(id, host, ip string) (string, bool)) (route, rule, set string, mine, sure bool) {
 	ip := ""
 	if _, err := netip.ParseAddr(host); err == nil {
 		ip, host = host, ""
 	}
 	for _, l := range Lines(tpl, user) {
+		if l.Set != "" {
+			if match != nil {
+				if hit, ok := match(l.Set, host, ip); ok {
+					return l.Route, hit, l.Set, false, true
+				}
+			}
+			continue
+		}
 		r := ruleOf(l.Text)
 		if r.Kind == KindGeo || r.Kind == KindGeoIP {
 			continue
 		}
 		if (UserRule{Kind: r.Kind, Value: r.Value}).Matches(host, ip) {
-			return l.Route, l.Text, l.Mine, true
+			return l.Route, l.Text, "", l.Mine, true
 		}
 	}
-	return "", "", false, false
+	return "", "", "", false, false
 }

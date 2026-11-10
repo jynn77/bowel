@@ -184,6 +184,16 @@ func (m *Manager) Test(path string) error {
 	return nil
 }
 
+// Check says whether the core would accept cfg, touching nothing.
+func (m *Manager) Check(cfg []byte) error {
+	tmp := filepath.Join(m.Dir, "config.check.yaml")
+	if err := os.WriteFile(tmp, cfg, 0o600); err != nil {
+		return err
+	}
+	defer os.Remove(tmp)
+	return m.Test(tmp)
+}
+
 // Apply writes cfg as the runtime config and makes the core use it:
 // a running core reloads it, a stopped one starts.
 func (m *Manager) Apply(cfg []byte) error {

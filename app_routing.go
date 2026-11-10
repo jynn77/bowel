@@ -27,7 +27,12 @@ func (a *App) routes() []routes.Route {
 	defer a.routesMu.Unlock()
 	if a.routesAt != gen || a.routesNow == nil {
 		s := a.settings.Get()
-		a.routesNow, a.routesAt = routes.Build(s.Routing, s.Rules), gen
+		if im := a.importedLocked(s); im != nil {
+			a.routesNow = importedRoutes(im)
+		} else {
+			a.routesNow = routes.Build(s.Routing, s.Rules)
+		}
+		a.routesAt = gen
 	}
 	return a.routesNow
 }
@@ -107,6 +112,9 @@ func wanted(r routes.Route) string {
 // what the core remembers: routes from before strategies existed were
 // either on their automatic group or on a node the user picked.
 func (a *App) adoptSelections() {
+	if a.importedNow() != nil {
+		return // the core's selectors are the source's groups, not the strategies'
+	}
 	s := a.settings.Get()
 	all := routes.Build(s.Routing, s.Rules)
 	if !slices.ContainsFunc(all, func(r routes.Route) bool { return !r.Direct && s.Routing.Policy(r.ID).Mode == "" }) {
@@ -137,6 +145,9 @@ func (a *App) adoptSelections() {
 // followPolicies puts every group's selector where its strategy says. A
 // strategy is only a selector's position, so changing one reloads nothing.
 func (a *App) followPolicies() error {
+	if a.importedNow() != nil {
+		return nil
+	}
 	all := a.routes()
 	return a.coreCall(5*time.Second, func(ctx context.Context, c *mihomo.Client) error {
 		px, err := c.Proxies(ctx)

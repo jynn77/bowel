@@ -358,17 +358,21 @@ func (x *bridge) todayShare(groupBytes map[string]int64) map[string]float64 {
 	all := x.routes()
 	x.mu.Lock()
 	defer x.mu.Unlock()
+	days := x.trafficDays()
 	if x.shareDay != day {
-		x.shareDay, x.routeBytes = day, map[string]int64{}
+		// Picks up where the app left off when it restarts during the day.
+		x.shareDay, x.routeBytes = day, days.day(day)
 	}
 	for g, v := range groupBytes {
 		if d := v - x.groupSeen[g]; d > 0 {
 			if id := routeOfGroup(all, g); id != "" {
 				x.routeBytes[id] += d
+				days.add(day, id, d)
 			}
 		}
 	}
 	x.groupSeen = groupBytes
+	days.saveIfDue(time.Now())
 	var total int64
 	for _, v := range x.routeBytes {
 		total += v

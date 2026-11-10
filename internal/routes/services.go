@@ -145,6 +145,7 @@ type Service struct {
 	Off     bool
 	Changed bool // a built-in that differs from what Moho ships
 	Rules   []Rule
+	Source  string // a rule set's link or file; its rules aren't in Rules
 }
 
 // MineID is the id of group's 我添加的 service.

@@ -421,6 +421,7 @@ func (u *UI) provName(c *ui.Context, p *pal, pv ProviderView, busy bool, shown i
 		if pv.Error != "" {
 			ui.Text(c, pv.Error).FontSize(11.5).TextColor(p.signal).MaxLines(2)
 		}
+		u.provRouting(c, p, pv)
 	})
 }
 
@@ -639,6 +640,9 @@ func (u *UI) provManage(c *ui.Context, p *pal, pv ProviderView) {
 	}
 	on := !pv.Enabled
 	u.provBtn(c.Key("toggle-btn"), p, toggle, false).OnClick(func() {
+		if pv.Routing.InUse {
+			u.toast(i18n.T("这份配置的路由已停用，现在用的是 bowel 路由。重新启用后恢复", "This config's routing has stopped and bowel's is in use. It comes back when you enable the Provider"))
+		}
 		if u.app != nil {
 			u.do(func() error { return u.app.setProviderEnabled(id, on) })
 		}
@@ -656,6 +660,9 @@ func (u *UI) provManage(c *ui.Context, p *pal, pv ProviderView) {
 		pr.confirm = ""
 		if pr.open == id {
 			pr.open = ""
+		}
+		if pv.Routing.InUse {
+			u.toast(i18n.T("已改回 bowel 路由", "Back on bowel's routing"))
 		}
 		if u.app != nil {
 			u.do(func() error { return u.app.deleteProvider(id) })

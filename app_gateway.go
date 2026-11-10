@@ -25,7 +25,8 @@ var osTun = struct {
 	installed func(path string) bool
 	step      func(src, dst string) (tun.Step, error)
 	admin     func(prompt string, steps ...tun.Step) error
-}{tun.Installed, tun.InstallStep, tun.Admin}
+	install   func(src, dst string) error
+}{tun.Installed, tun.InstallStep, tun.Admin, tun.Install}
 
 // gwProbe is what the last look at the gateway found.
 type gwProbe struct {
@@ -82,7 +83,7 @@ func (a *App) setGateway(on bool) error {
 // is asked when both are there.
 func (a *App) prepareGateway() error {
 	sys := a.gw.System()
-	needTun := !osTun.installed(a.tunBin)
+	needTun := a.tunNeedsInstall()
 	if !needTun && sys.Ready() {
 		return nil
 	}
@@ -104,9 +105,7 @@ func (a *App) prepareGateway() error {
 		return err
 	}
 	if needTun {
-		// The core must be the setuid copy from now on.
-		a.core.Stop()
-		a.core.SetBin(a.tunBin)
+		a.tunInstalled()
 	}
 	return nil
 }

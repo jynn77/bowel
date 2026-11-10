@@ -58,6 +58,9 @@ type ServiceConf struct {
 	Group    string   `json:"group,omitempty"`    // where it lives; "" is a built-in's own group
 	Off      bool     `json:"off,omitempty"`      // switched off: its traffic falls through
 	OffRules []string `json:"offRules,omitempty"` // a built-in's rules switched off
+	// Source makes a Custom service a rule set: its rules come from this
+	// link or file (internal/ruleset), and its id names the set.
+	Source string `json:"source,omitempty"`
 }
 
 // Plan is what the user changed about routing. Built-in services stay in
@@ -211,7 +214,7 @@ func Build(p Plan, users []UserRule) []Route {
 			i = at(Default)
 		}
 		moved[out[i].ID] = true
-		out[i].Services = append(out[i].Services, Service{ID: cf.ID, Name: cf.Name, Group: out[i].ID, Off: cf.Off})
+		out[i].Services = append(out[i].Services, Service{ID: cf.ID, Name: cf.Name, Group: out[i].ID, Off: cf.Off, Source: cf.Source})
 	}
 	for i := range out {
 		out[i].Services = append(out[i].Services, Service{ID: MineID(out[i].ID), Group: out[i].ID, Mine: true})
@@ -284,7 +287,11 @@ type Line struct {
 	Text  string
 	Route string
 	Mine  bool
+	Set   string // the id of the rule set this line stands for, if it does
 }
+
+// RuleSetProvider is the name of a rule set's rule-provider in the core.
+func RuleSetProvider(id string) string { return "rs-" + id }
 
 // rank orders rules so that there is no priority to manage: the more
 // specific rule goes first. A whole name, then longer suffixes, longer
@@ -312,24 +319,52 @@ func rank(text string) (class, length int) {
 
 // Lines are all rules in the order the core tries them. Of two equally
 // specific rules the user's goes first, then the routes' in their order.
+//
+// A rule set's lines can't be sorted in by how specific they are, so with
+// one in use the order is the user's rules, the sets, what ships. Without
+// one nothing changes for anybody.
 func Lines(all []Route, users []UserRule) []Line {
-	var out []Line
+	var mine, sets, shipped []Line
 	for _, u := range users {
 		if slices.ContainsFunc(all, func(r Route) bool { return r.ID == u.Route }) {
-			out = append(out, Line{Text: u.Mihomo(), Route: u.Route, Mine: true})
+			mine = append(mine, Line{Text: u.Mihomo(), Route: u.Route, Mine: true})
 		}
 	}
 	for _, r := range all {
 		for _, t := range r.Rules {
-			out = append(out, Line{Text: t, Route: r.ID})
+			shipped = append(shipped, Line{Text: t, Route: r.ID})
+		}
+		for _, s := range r.Services {
+			if s.Source != "" && !s.Off {
+				sets = append(sets, Line{Text: "RULE-SET," + RuleSetProvider(s.ID) + ",no-resolve", Route: r.ID, Set: s.ID})
+			}
 		}
 	}
-	slices.SortStableFunc(out, func(a, b Line) int {
+	if len(sets) == 0 {
+		return sorted(append(mine, shipped...))
+	}
+	return slices.Concat(sorted(mine), sets, sorted(shipped))
+}
+
+func sorted(lines []Line) []Line {
+	slices.SortStableFunc(lines, func(a, b Line) int {
 		ca, la := rank(a.Text)
 		cb, lb := rank(b.Text)
 		return cmp.Or(cmp.Compare(ca, cb), cmp.Compare(la, lb))
 	})
-	return out
+	return lines
+}
+
+// FindSource is the rule set that comes from source.
+func FindSource(all []Route, source string) (Service, bool) {
+	for _, r := range all {
+		for _, s := range r.Services {
+			if s.Source == source {
+				return s, true
+			}
+		}
+	}
+	return Service{}, false
 }
 
 // FindRule finds the service a rule is in, off or not.
@@ -350,6 +385,9 @@ func FindMatched(all []Route, ruleType, payload string) (Service, bool) {
 	t := strings.ToLower(ruleType)
 	for _, r := range all {
 		for _, s := range r.Services {
+			if t == "ruleset" && s.Source != "" && payload == RuleSetProvider(s.ID) {
+				return s, true
+			}
 			for _, l := range s.Rules {
 				if l.Off && l.Builtin {
 					continue
@@ -567,6 +605,13 @@ func (p *Plan) AddService(users []UserRule, group, name string) string {
 	})
 	name = uniqueName(name, func(n string) bool { return serviceTaken(all, "", n) })
 	p.Services = append(p.Services, ServiceConf{ID: id, Custom: true, Name: name, Group: group})
+	return id
+}
+
+// AddRuleSet makes a service whose rules come from source. It returns its id.
+func (p *Plan) AddRuleSet(users []UserRule, group, name, source string) string {
+	id := p.AddService(users, group, name)
+	p.service(id).Source = source
 	return id
 }
 

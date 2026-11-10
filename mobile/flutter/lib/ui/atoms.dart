@@ -613,6 +613,13 @@ class _BareFieldState extends State<BareField> {
   void initState() {
     super.initState();
     _c.addListener(_changed);
+    // Not TextField's autofocus: that gives way when the focus scope already
+    // has a focused child, as the settings tab's nested navigator always does.
+    if (widget.autofocus) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focus.requestFocus();
+      });
+    }
   }
 
   void _changed() => setState(() {});
@@ -646,7 +653,6 @@ class _BareFieldState extends State<BareField> {
             cursorColor: l.accent,
             maxLines: widget.maxLines,
             keyboardType: widget.keyboardType,
-            autofocus: widget.autofocus,
             autocorrect: false,
             enableSuggestions: false,
             onChanged: widget.onChanged,

@@ -34,7 +34,10 @@ func TestTablesCoverSource(t *testing.T) {
 	missing := map[string][]string{}
 	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		rel, _ := filepath.Rel(root, path)
-		rel = filepath.ToSlash(rel) // skipFiles are written with '/', and Rel uses '\' on Windows
+		// skipFiles are written with '/', and Rel answers with '\\' on Windows:
+		// without this, nothing there is skipped and geo/data.go alone reports
+		// every one of its place names.
+		rel = filepath.ToSlash(rel)
 		if d.IsDir() {
 			if strings.HasPrefix(d.Name(), ".") || d.Name() == "prototype" || d.Name() == "resources" || d.Name() == "scripts" {
 				return filepath.SkipDir

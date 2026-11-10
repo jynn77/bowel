@@ -131,3 +131,23 @@ DNS 分流、hosts、fake-ip 过滤都是用户自己写的优先。
 没有单独在 TUN 下测试 global 和 direct 模式，这两种模式的规则已在系统代理路径上验证。
 
 Tailscale 会把 TUN 的 `198.18.0.1:41641` 也列为自己的端点，实测没有影响连接。
+
+## 11. 开发工具
+
+上面各节解决“进了 bowel 的流量别被弄坏”。开发工具解决反过来的问题：很多工具不读系统代理，流量根本没进 bowel。实现在 `internal/devtools`，入口在 模式 卡片。
+
+| 工具 | 写到哪里 | bowel 不运行时 |
+|---|---|---|
+| Colima 的 dockerd | `colima.yaml` 的 `docker.proxies`，要重启 Colima | `docker pull` 失败 |
+| 容器和 `docker build` | `~/.docker/config.json` 的 `proxies` | 新容器和构建失败 |
+| zsh | `~/.zshenv`，先检测端口 | 新开的终端不设代理 |
+| Git SSH | `~/.ssh/config` 顶部，`Match exec` 检测端口 | 直连 |
+| Git HTTPS（改直连） | `~/.gitconfig` | 不受影响 |
+
+**撤销就是删除。** 写入的内容夹在两行注释之间，撤销时整段删除，不备份原值。JSON 没有注释，Colima 启动时可能重写自己的文件，这两项按键名删除，`written.json` 记录它们是 bowel 写的，用户自己配的不碰。
+
+**退出。** 面板的“退出”和面板里的 ⌘Q 会列出会连不上的工具。系统发起的退出（比如注销）不能拦，不提醒。bowel 打不开时用 `bowel devtools off` 撤销全部。
+
+**实测。** 2026-11-09 在真实 Colima 0.10.3 上跑过：写入并重启后，`docker pull`、容器内的 `apt-get` 和 `docker build` 都经过 bowel；撤销并重启后代理消失。Colima 启动时会删掉 `colima.yaml` 里的注释，这就是按键名删除的原因。
+
+`brew services restart` 对 Colima 不可靠：它只结束外层进程，VM 可能留下，下一个进程发现“已在运行”就退出，配置不会重新读取。所以 bowel 按顺序停服务、`colima stop`、再启动服务，然后等 daemon 的代理和文件一致。

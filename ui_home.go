@@ -28,11 +28,20 @@ type homeUI struct {
 	region string // node picker filter: "", a country, or "?"
 	query  string
 	nodes  ui.ListState
+	// The 地区 row: the regions behind 更多 are out, the common ones being
+	// chosen.
+	regionsMore, regionsEdit bool
 	// The test sites dialog of the route being looked at.
 	targetsOpen bool
 	targetsNew  string
 	targetsErr  string
-	hist        []Tick // the last 90 seconds
+	// The developer tools in the 模式 cell: the list shown, and the change
+	// waiting for its second click.
+	toolsList  bool
+	toolArmed  string
+	toolsArmed bool
+	toolsAt    time.Time
+	hist       []Tick // the last 90 seconds
 
 	// What each cell showed in the last frame, and a view folding away.
 	shown   map[string]shownView
@@ -988,7 +997,7 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 	case "mode":
 		compact(c, p, v, id, i18n.T("模式", "Mode"), func(size float32) {
 			disp(ui.Text(c, modeWord(s.Mode)), p).FontSize(size).FontWeight(600).TextColor(p.ink)
-		}, modeNote(s.Mode), nil)
+		}, u.modeNoteNow(s.Mode), nil)
 	case "takeover":
 		names := u.entryNames()
 		val, sub := i18n.T("未接管", "Not taken over"), ""
@@ -1416,6 +1425,10 @@ func peekWidth(widths []float32, gap, avail float32) (w float32, cut bool) {
 func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 	h := &u.home
 	r := u.route(rid)
+	if u.snap.Imported != nil {
+		u.groupPicker(c, p, r)
+		return
+	}
 	q := u.policy(rid)
 	testing := u.pending("test:" + rid)
 	countries := map[string]string{}
@@ -1814,6 +1827,14 @@ func modeWord(m string) string {
 	return m
 }
 
+// modeNoteNow is modeNote for the routing in use.
+func (u *UI) modeNoteNow(m string) string {
+	if m == "rule" && u.snap.Imported != nil {
+		return i18n.T("按这份配置的规则分流", "Split by this config's rules")
+	}
+	return modeNote(m)
+}
+
 // modeNote is what a mode does, in a few words.
 func modeNote(m string) string {
 	switch m {
@@ -1878,13 +1899,17 @@ func (u *UI) modeNormal(c *ui.Context, p *pal) {
 			"global": i18n.T("所有流量都走当前出口，规则暂不生效。", "All traffic goes through the current exit; rules are paused."),
 			"direct": i18n.T("所有流量直接连接，不经过任何节点。", "All traffic connects directly, through no node."),
 		}[s.Mode]
+		if s.Mode == "rule" && s.Imported != nil {
+			note = fmt.Sprintf(i18n.T("按「%[1]s」自带的 %[2]d 条规则分流。", "Split by the %[2]d rules of %[1]s."), s.Imported.Name, s.Imported.Rules)
+		}
 		ui.Text(c, note).FontSize(12).TextColor(p.mute).Margin(12, 0, 0, 0).MaxLines(2).Ellipsis("…").Tooltip(note)
+		u.modeToolsLine(c, p)
 	})
 }
 
 func (u *UI) modeExpanded(c *ui.Context, p *pal) {
 	s := u.snap
-	u.detailHead(c, p, "mode", i18n.T("模式", "Mode"), func() { detailTitle(c, p, i18n.T("模式与规则", "Mode and rules")) }, nil)
+	u.detailHead(c, p, "mode", i18n.T("模式", "Mode"), func() { detailTitle(c, p, i18n.T("模式与开发工具", "Mode and developer tools")) }, nil)
 	ui.Scroll(c).Grow(1).Padding(4, 26, 18, 26).Children(func() {
 		for _, m := range [][3]string{
 			{"rule", i18n.T("规则", "Rule"), i18n.T("按规则把流量分到不同路由。日常就用这个。", "Sends traffic to routes by rule. Use this day to day.")},
@@ -1906,19 +1931,7 @@ func (u *UI) modeExpanded(c *ui.Context, p *pal) {
 				})
 			})
 		}
-		section(c, p, i18n.T("规则", "Rule"), fmt.Sprintf(i18n.T("%d 条 · bowel 默认模板", "%d · bowel's default template"), s.RuleCount), func() {
-			ui.Column(c).Gap(6).Children(func() {
-				for _, r := range s.Routes {
-					ui.Row(c).Gap(10).Children(func() {
-						ui.Row(c).Gap(6).Width(110).Children(func() {
-							swatch(c, p.routeColor(r.ID), 8)
-							ui.Text(c, r.Name).FontSize(12).TextColor(p.mute)
-						})
-						ui.Text(c, fmt.Sprintf(i18n.T("%d 条 · %s", "%d · %s"), r.Rules, r.Summary)).FontSize(12).TextColor(p.ink).Grow(1)
-					})
-				}
-			})
-		}, nil)
+		u.toolsSection(c, p)
 	})
 }
 

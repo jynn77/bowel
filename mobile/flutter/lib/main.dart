@@ -10,6 +10,7 @@ import 'board/board.dart';
 import 'pages/activity.dart';
 import 'pages/deco.dart';
 import 'pages/frame.dart';
+import 'pages/launch.dart';
 import 'pages/providers.dart';
 import 'pages/settings.dart';
 import 'pages/sheet.dart';
@@ -22,14 +23,16 @@ Future<void> main() async {
   Shell.instance.onTabSelected = (i) => app.selectTab(i, fromShell: true);
   await Shell.instance.start();
   await app.load();
-  await app.attachCore();
-  runApp(BowelApp(app: app));
+  runApp(BowelApp(app: app, ready: app.attachCore()));
 }
 
 class BowelApp extends StatelessWidget {
-  const BowelApp({super.key, required this.app});
+  const BowelApp({super.key, required this.app, required this.ready});
 
   final AppState app;
+
+  /// The core has started, while the launch animation plays.
+  final Future<void> ready;
 
   @override
   Widget build(BuildContext context) {
@@ -37,14 +40,15 @@ class BowelApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'bowel',
       theme: ThemeData(fontFamily: 'OPPO Sans', splashFactory: NoSplash.splashFactory, highlightColor: Colors.transparent),
-      home: AnimatedBuilder(animation: app, builder: (context, _) => _Root(app: app)),
+      home: AnimatedBuilder(animation: app, builder: (context, _) => _Root(app: app, ready: ready)),
     );
   }
 }
 
 class _Root extends StatefulWidget {
-  const _Root({required this.app});
+  const _Root({required this.app, required this.ready});
   final AppState app;
+  final Future<void> ready;
 
   @override
   State<_Root> createState() => _RootState();
@@ -52,23 +56,24 @@ class _Root extends StatefulWidget {
 
 class _RootState extends State<_Root> {
   String? _styled;
+  bool _open = false;
 
   void _syncShell(Look l) {
-    final setup = widget.app.setup != 0;
+    final barHidden = widget.app.setup != 0 || !_open;
     final warn = providers.any((p) => p.warn != null);
-    final key = '${l.id}|${l.isDark}|$setup|$warn';
+    final key = '${l.id}|${l.isDark}|${l.accent.toARGB32()}|$barHidden|$warn';
     if (key == _styled) return;
     _styled = key;
     final shell = Shell.instance;
     shell.setStyle(l.accent, dark: l.darkGlass, paper: l.paper);
     shell.setBadge(2, on: warn, color: l.warn);
-    shell.setBarHidden(setup);
+    shell.setBarHidden(barHidden);
   }
 
   @override
   Widget build(BuildContext context) {
     final app = widget.app;
-    final l = Look.of(app.skin, MediaQuery.platformBrightnessOf(context) == Brightness.dark);
+    final l = Look.of(app.skin, app.wantsDark(MediaQuery.platformBrightnessOf(context)), custom: app.accent);
     _syncShell(l);
     return Skin(
       look: l,
@@ -78,25 +83,29 @@ class _RootState extends State<_Root> {
           maxScaleFactor: 1,
           child: ColoredBox(
             color: l.paper,
-            child: ValueListenableBuilder<EdgeInsets?>(
-              valueListenable: Shell.instance.insets,
-              builder: (context, native, _) {
-                final media = MediaQuery.paddingOf(context);
-                final frame = FrameData(
-                  top: native?.top ?? media.top,
-                  barInset: native?.bottom ?? 0,
-                  nativeBar: Shell.instance.native,
-                  homeIndicator: media.bottom,
-                  form: windowFormOf(MediaQuery.sizeOf(context)),
-                );
-                return Frame(
-                  data: frame,
-                  child: Stack(fit: StackFit.expand, children: [
-                    app.setup != 0 ? SetupPage(app: app) : _Tabs(app: app),
-                    const IgnorePointer(child: Deco()),
-                  ]),
-                );
-              },
+            child: Launch(
+              ready: widget.ready,
+              onOpen: () => setState(() => _open = true),
+              child: ValueListenableBuilder<EdgeInsets?>(
+                valueListenable: Shell.instance.insets,
+                builder: (context, native, _) {
+                  final media = MediaQuery.paddingOf(context);
+                  final frame = FrameData(
+                    top: native?.top ?? media.top,
+                    barInset: native?.bottom ?? 0,
+                    nativeBar: Shell.instance.native,
+                    homeIndicator: media.bottom,
+                    form: windowFormOf(MediaQuery.sizeOf(context)),
+                  );
+                  return Frame(
+                    data: frame,
+                    child: Stack(fit: StackFit.expand, children: [
+                      app.setup != 0 ? SetupPage(app: app) : _Tabs(app: app),
+                      const IgnorePointer(child: Deco()),
+                    ]),
+                  );
+                },
+              ),
             ),
           ),
         ),

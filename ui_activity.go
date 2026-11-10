@@ -20,6 +20,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/routes"
 )
 
 const (
@@ -442,6 +443,18 @@ func actRule(c Conn) string {
 	return c.Rule + "(" + c.Payload + ")"
 }
 
+// actRuleWord is actRule with a rule set under the name people gave it.
+func (u *UI) actRuleWord(c Conn) string {
+	if c.Rule == "RuleSet" {
+		for _, s := range u.shownSettings().Routing.Services {
+			if s.Source != "" && c.Payload == routes.RuleSetProvider(s.ID) {
+				return c.Rule + "(" + s.Name + ")"
+			}
+		}
+	}
+	return actRule(c)
+}
+
 func (u *UI) actRouteName(c Conn) string {
 	if n := u.route(c.Route).Name; n != "" {
 		return n
@@ -761,7 +774,7 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 		ui.Row(c).Gap(10).Padding(8, 26).Background(p.hair2).AlignItems(ui.Center).Children(func() {
 			ui.Box(c).Size(7, 7).Radius(p.r(4)).Background(p.faint)
 			ui.Text(c, i18n.T("bowel 现在没有接管流量，新的连接不会经过这里。", "bowel is not taking over traffic; new connections won’t show up here.")).FontSize(12).TextColor(p.ink2).Grow(1)
-			btn(c, p, i18n.T("去今日开启 →", "Turn on in Proxy →")).OnClick(func() { u.page = "home" })
+			btn(c, p, i18n.T("去代理开启 →", "Turn on in Proxy →")).OnClick(func() { u.page = "home" })
 		})
 	}
 	head := ui.Row(c).Gap(actGap).Padding(9, actPadX+26, 7, actPadX+26).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).ClipX()
@@ -806,7 +819,7 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 			if !u.snap.Takeover.On && len(a.conns) == 0 {
 				ui.Text(c, i18n.T("流量现在不经过 bowel", "Traffic isn’t going through bowel")).FontSize(17).FontWeight(700).TextColor(p.ink2)
 				ui.Text(c, i18n.T("开启接管后，经过 bowel 的连接会显示在这里。", "Turn on Takeover, and connections through bowel show up here.")).FontSize(12.5).TextColor(p.mute)
-				btn(c, p, i18n.T("去今日开启 →", "Turn on in Proxy →")).Margin(10, 0, 0, 0).OnClick(func() { u.page = "home" })
+				btn(c, p, i18n.T("去代理开启 →", "Turn on in Proxy →")).Margin(10, 0, 0, 0).OnClick(func() { u.page = "home" })
 				return
 			}
 			ui.Text(c, i18n.T("没有符合条件的连接", "No matching connections")).FontSize(12.5).TextColor(p.mute)
@@ -860,7 +873,7 @@ func (u *UI) actRow(c *ui.Context, p *pal, i int, cn Conn) {
 			}
 			actCell(actClip(ui.RichText(c, ui.Span{Text: host, Size: 12, Weight: 600, Color: ink}, ui.Span{Text: fmt.Sprintf(":%d", cn.Port), Size: 11, Color: p.mute})), 2)
 			actCell(ui.Text(c, strings.ToUpper(cn.Network)).FontSize(11.5).TextColor(p.mute).NoWrap(), 3)
-			actCell(actClip(ui.Text(c, actRule(cn)).FontSize(11.5).TextColor(p.mute)), 4)
+			actCell(actClip(ui.Text(c, u.actRuleWord(cn)).FontSize(11.5).TextColor(p.mute)), 4)
 			actCell(ui.Row(c).Gap(6).AlignItems(ui.Center), 5).Children(func() {
 				swatch(c, p.routeColor(cn.Route), 8).Shrink(0)
 				spans := []ui.Span{{Text: u.actRouteName(cn), Size: 12, Color: ink2}}
@@ -1006,7 +1019,9 @@ func (u *UI) actDetail(c *ui.Context, p *pal, cn Conn) {
 				if host == "" {
 					host = cn.IP
 				}
-				u.actRouteBtn(c, p, cn)
+				if u.snap.Imported == nil {
+					u.actRouteBtn(c, p, cn)
+				}
 				btn(c.Key("copy"), p, i18n.T("复制域名", "Copy domain")).OnClick(func() {
 					c.WriteClipboard(host)
 					u.toasts = append(u.toasts, i18n.T("已复制 ", "Copied ")+host)

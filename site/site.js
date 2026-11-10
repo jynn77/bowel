@@ -1,5 +1,5 @@
 // bowel's website: language, screenshots that follow it and the color
-// scheme, the skin gallery, copy buttons, and a little entrance motion.
+// scheme, the skin gallery, downloads, copy buttons, and a little entrance motion.
 (function () {
   var root = document.documentElement;
   var dark = window.matchMedia("(prefers-color-scheme: dark)");
@@ -17,7 +17,7 @@
   }
 
   function title() {
-    document.title = lang() === "en" ? "bowel · A mihomo client for macOS" : "bowel · macOS 上的 mihomo 客户端";
+    document.title = lang() === "en" ? "bowel · A cross-platform mihomo client" : "bowel · 跨平台的 mihomo 客户端";
   }
   function setLang(l) {
     root.className = l;
@@ -57,14 +57,64 @@
   });
 
   // Copy buttons.
-  document.querySelectorAll(".copy-btn").forEach(function (b) {
-    b.addEventListener("click", function () {
-      navigator.clipboard.writeText(b.dataset.copy).then(function () {
-        b.classList.add("done");
-        setTimeout(function () { b.classList.remove("done"); }, 1400);
-      });
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest(".copy-btn");
+    if (!b) return;
+    navigator.clipboard.writeText(b.dataset.copy).then(function () {
+      b.classList.add("done");
+      setTimeout(function () { b.classList.remove("done"); }, 1400);
     });
   });
+
+  // Get bowel: the hero's block is copied into #download, and both show
+  // one platform, the visitor's to begin with.
+  var get = document.querySelector(".get");
+  document.querySelectorAll(".get-slot").forEach(function (slot) {
+    slot.replaceChildren(get.cloneNode(true));
+  });
+  function platform(os) {
+    document.querySelectorAll(".get-tabs button").forEach(function (b) { b.setAttribute("aria-selected", String(b.dataset.os === os)); });
+    document.querySelectorAll(".get-panel").forEach(function (p) { p.hidden = p.dataset.os !== os; });
+  }
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest(".get-tabs button");
+    if (b) platform(b.dataset.os);
+  });
+  var ua = navigator.userAgent;
+  platform(/Android/i.test(ua) ? "android" : /Windows/i.test(ua) ? "windows" : /Linux|X11|CrOS/i.test(ua) ? "linux" : "macos");
+
+  // File names carry the version, so the links start at the release page
+  // and move to the files once GitHub says what the latest release holds.
+  var assets = {
+    "dmg": /-arm64\.dmg$/, "apk": /-android-arm64\.apk$/,
+    "exe-amd64": /^bowel-setup-.*-amd64\.exe$/, "exe-arm64": /^bowel-setup-.*-arm64\.exe$/,
+    "deb-amd64": /_amd64\.deb$/, "deb-arm64": /_arm64\.deb$/,
+    "rpm-amd64": /\.x86_64\.rpm$/, "rpm-arm64": /\.aarch64\.rpm$/,
+    "tgz-amd64": /-linux-amd64\.tar\.gz$/, "tgz-arm64": /-linux-arm64\.tar\.gz$/
+  };
+  var base = "https://github.com/21stware/bowel/releases/download/";
+  function release(rel) {
+    if (!rel || !Array.isArray(rel.files)) return;
+    document.querySelectorAll("a[data-asset]").forEach(function (a) {
+      var re = assets[a.dataset.asset];
+      var f = rel.files.find(function (f) { return re.test(f.name) && String(f.url).indexOf(base) === 0; });
+      if (f) a.href = f.url;
+    });
+    if (/^v[\d.]+$/.test(rel.tag)) document.querySelectorAll(".get-ver").forEach(function (v) { v.textContent = rel.tag; v.hidden = false; });
+  }
+  var cached = null;
+  try { cached = JSON.parse(sessionStorage.getItem("bowel-release")); } catch (e) {}
+  if (cached) release(cached);
+  else if (window.fetch) {
+    fetch("https://api.github.com/repos/21stware/bowel/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+      .then(function (j) {
+        var rel = { tag: j.tag_name, files: j.assets.map(function (a) { return { name: a.name, url: a.browser_download_url }; }) };
+        release(rel);
+        try { sessionStorage.setItem("bowel-release", JSON.stringify(rel)); } catch (e) {}
+      })
+      .catch(function () {});
+  }
 
   // The nav gets a hairline once the page scrolls.
   var nav = document.querySelector(".nav");

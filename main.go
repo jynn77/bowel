@@ -19,6 +19,14 @@ func main() {
 		}
 		return
 	}
+	// `bowel devtools off`: remove what bowel wrote into developer tools.
+	if len(os.Args) > 1 && os.Args[1] == "devtools" {
+		if err := runDevtoolsCLI(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "bowel devtools:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	app, err := newApp()
 	if err != nil {
 		log.Fatal(err)

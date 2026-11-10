@@ -14,7 +14,7 @@ import (
 	"github.com/oboo/moho/internal/routes"
 )
 
-// viewData is what the 今日 page and the sheets draw. It is a cut of the
+// viewData is what the 代理 page and the sheets draw. It is a cut of the
 // desktop's Snapshot, the fields the MVP's pages use.
 type viewData struct {
 	Language  string         `json:"language"`
@@ -25,7 +25,7 @@ type viewData struct {
 	Routes    []routeData    `json:"routes"`
 	Nodes     []nodeData     `json:"nodes"`
 	Exit      *nodeData      `json:"exit,omitempty"`
-	You       placeData      `json:"you"`
+	You       *placeData     `json:"you,omitempty"`
 	Providers []providerData `json:"providers"`
 	// RuleCount is every rule in the config, the 模式 card's hint.
 	RuleCount int `json:"ruleCount"`
@@ -35,7 +35,7 @@ type viewData struct {
 	Core string `json:"core"`
 }
 
-// issueData is what the 今日 page says is wrong, the desktop's title bar.
+// issueData is what the 代理 page says is wrong, the desktop's title bar.
 // Action is providers, activity or fix:<route id>; "" has none.
 type issueData struct {
 	Level  string `json:"level"`
@@ -117,6 +117,14 @@ type tickData struct {
 	PrevBytes int   `json:"prevBytes"`
 	SentMs    int64 `json:"sentMs"` // when Go handed it over, for the one-way latency
 	MonthDown int64 `json:"monthDown"`
+	// Ranges is what each route carried lately. Sent every few seconds, not each tick.
+	Ranges *rangesData `json:"ranges,omitempty"`
+}
+
+// rangesData is bytes by route, for the last 7 days and the last 30, today included.
+type rangesData struct {
+	Week  map[string]int64 `json:"week"`
+	Month map[string]int64 `json:"month"`
 }
 
 type connData struct {
@@ -152,8 +160,8 @@ func (x *bridge) view() viewData {
 	x.mu.Unlock()
 	st := x.set.Get()
 	all := x.routes()
-	// You is not measured on the phone: the design's own default place.
-	v := viewData{Language: i18n.Lang(), VPN: vpn, VPNError: vErr, Mode: st.Mode, You: placeData{City: "上海", Lat: 31.2, Lon: 121.5}, Routes: []routeData{}, Nodes: []nodeData{}, Providers: []providerData{}}
+	v := viewData{Language: i18n.Lang(), VPN: vpn, VPNError: vErr, Mode: st.Mode, Routes: []routeData{}, Nodes: []nodeData{}, Providers: []providerData{}}
+	v.You = x.youPlace()
 	used := map[string][]string{}
 	for _, r := range all {
 		if r.Direct || r.Reject {

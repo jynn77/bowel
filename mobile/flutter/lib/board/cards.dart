@@ -4,7 +4,6 @@ import 'package:flutter/widgets.dart';
 
 import '../app/i18n.dart';
 import '../app/sample.dart';
-import '../app/core.dart';
 import '../app/state.dart';
 import '../pages/sheet.dart' show PickOption, pickSheet;
 import '../ui/atoms.dart';
@@ -388,7 +387,12 @@ class _SpeedCard extends StatelessWidget {
         Text(tr('本月 {0}', 'This month {0}', [sizeText(stats.month)]), style: ink),
       ]);
     }
+    // Sample data has no history, so it scales today's.
     final k = {'day': 1.0, 'week': 6.2, 'month': 21.0}[s.range]!;
+    final bytes = s.rangeBytes;
+    final total = bytes == null ? 0 : bytes.values.fold(0, (a, b) => a + b);
+    double partOf(String id) => bytes == null ? share[id] ?? 0 : (total == 0 ? 0 : (bytes[id] ?? 0) / total);
+    int sizeOf(String id) => bytes == null ? (stats.today * k * (share[id] ?? 0)).round() : bytes[id] ?? 0;
     return _Detail(
       s: s,
       flyId: 'speed',
@@ -399,10 +403,10 @@ class _SpeedCard extends StatelessWidget {
         for (final (i, r) in s.routes.indexed)
           Unroll(
             step: (i * 2 + 2).clamp(0, 8),
-            child: _TallyRow(color: l.route(r.id), name: r.name, share: share[r.id]!, value: sizeText((stats.today * k * share[r.id]!).round())),
+            child: _TallyRow(color: l.route(r.id), name: r.name, share: partOf(r.id), value: sizeText(sizeOf(r.id))),
           ),
       ]),
-      footer: Core.instance.live ? const [] : [
+      footer: [
         Seg<String>(options: [('day', tr('今天', 'Today')), ('week', tr('7 天', '7 days')), ('month', tr('30 天', '30 days'))], value: s.range, onChanged: (v) => s.set(() => s.range = v)),
       ],
     );

@@ -8,6 +8,7 @@ package main
 import (
 	"time"
 
+	"github.com/oboo/moho/internal/devtools"
 	"github.com/oboo/moho/internal/gateway"
 	"github.com/oboo/moho/internal/ipinfo"
 	"github.com/oboo/moho/internal/routes"
@@ -27,6 +28,15 @@ const (
 )
 
 // Snapshot is everything the page shows.
+// RuleSetView is what is known of a rule set.
+type RuleSetView struct {
+	Count     int           `json:"count"`
+	Skipped   int           `json:"skipped,omitempty"`
+	UpdatedAt time.Time     `json:"updatedAt"`
+	Error     string        `json:"error,omitempty"` // of the last update; the last good list stays in use
+	Preview   []routes.Rule `json:"preview,omitempty"`
+}
+
 type Snapshot struct {
 	State State  `json:"state"`
 	Issue *Issue `json:"issue,omitempty"`
@@ -39,7 +49,12 @@ type Snapshot struct {
 	Exit      *Exit          `json:"exit,omitempty"`
 	You       *Located       `json:"you,omitempty"`
 	Providers []ProviderView `json:"providers"`
-	RuleCount int            `json:"ruleCount"`
+	// Imported is a provider's own routing, when it is used instead of the
+	// route groups.
+	Imported  *ImportedView `json:"imported,omitempty"`
+	RuleCount int           `json:"ruleCount"`
+	// RuleSets are the rule sets whose file is there, by service id.
+	RuleSets map[string]RuleSetView `json:"ruleSets,omitempty"`
 	// Pending lists actions being applied, for loading states:
 	// "entry:sys", "entry:tun", "mode", "node:<route>", "test:<route>",
 	// "provider:<id>", "providers", "retake", "add".
@@ -55,6 +70,44 @@ type Snapshot struct {
 	ControllerTCP string `json:"controllerTcp,omitempty"`
 	// Dev is what the developer networks page shows.
 	Dev DevNet `json:"dev"`
+	// Tools are the developer tools found.
+	Tools []devtools.Tool `json:"tools,omitempty"`
+	// Update is a new version of bowel and how far installing it has got.
+	Update *UpdateView `json:"update,omitempty"`
+	// UpdateInfo is the rest of what the update's interface shows.
+	UpdateInfo UpdateInfo `json:"updateInfo"`
+}
+
+// UpdateInfo is about updating, whether or not there is a new version.
+type UpdateInfo struct {
+	// Can: this copy can update itself.
+	Can bool `json:"can"`
+	// Checking: the user asked and the answer has not come. Latest: it came
+	// and there is nothing newer.
+	Checking bool `json:"checking,omitempty"`
+	Latest   bool `json:"latest,omitempty"`
+	// Just is what the last run's update came to, until it is dismissed.
+	Just *JustUpdated `json:"just,omitempty"`
+	// From is the version this one was updated from, "" when not known.
+	From string `json:"from,omitempty"`
+}
+
+// JustUpdated is the update that this launch finished.
+type JustUpdated struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	// OK: this is the version the update asked for.
+	OK bool `json:"ok"`
+}
+
+// UpdateView is a new version of bowel.
+type UpdateView struct {
+	// Status: available, downloading, restarting or failed.
+	Status  string `json:"status"`
+	Version string `json:"version"`
+	// Percent of the download; at 100 it is being put in place.
+	Percent int    `json:"percent,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 // Issue is the news line: shown only when degraded or broken.
@@ -142,6 +195,8 @@ type RouteView struct {
 	Sites []SiteDelay `json:"sites,omitempty"`
 	// Node is the node in use (a NodeView name), "" for direct routes.
 	Node string `json:"node"`
+	// Group is the imported group this route is, "" for Moho's own.
+	Group string `json:"group,omitempty"`
 	// Share is the route's part of today's download, 0–1.
 	Share float64 `json:"share"`
 }
@@ -238,6 +293,53 @@ type ProviderView struct {
 	Nodes      int       `json:"nodes"`
 	// Warn: "quota" (over 90% used), "expire" (within 7 days), "".
 	Warn string `json:"warn,omitempty"`
+	// Routing is about the groups and rules its content brings, if any.
+	Routing ProviderRouting `json:"routing"`
+}
+
+// ProviderRouting is the routing a provider's content brings with it.
+type ProviderRouting struct {
+	Groups int  `json:"groups,omitempty"`
+	Rules  int  `json:"rules,omitempty"`
+	InUse  bool `json:"inUse,omitempty"` // it is what routes traffic now
+	// Problem is why it can't be used, "" when it can.
+	Problem string `json:"problem,omitempty"`
+}
+
+// ImportedView is a provider's own routing, as it is now.
+type ImportedView struct {
+	Provider string `json:"provider"`
+	Name     string `json:"name"`
+	Rules    int    `json:"rules"`
+	// Paused are the user's rules and rule sets that wait for bowel's
+	// routing to come back.
+	PausedRules int         `json:"pausedRules"`
+	PausedSets  int         `json:"pausedSets"`
+	Groups      []GroupView `json:"groups"`
+}
+
+// GroupView is one group of an imported config.
+type GroupView struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"` // the core's word: select, url-test, …
+	// Route is the route this group is, "" if only other groups use it.
+	Route string `json:"route,omitempty"`
+	Rules int    `json:"rules"` // how many rules send traffic here
+	Now   string `json:"now,omitempty"`
+	// Exit is the node at the end of the chain (a NodeView name), "" for none.
+	Exit string `json:"exit,omitempty"`
+	// Selectable: the user chooses its member. In the other kinds the core does.
+	Selectable bool         `json:"selectable"`
+	Members    []MemberView `json:"members"`
+}
+
+// MemberView is what a group can point at: a node, a group or a built-in.
+type MemberView struct {
+	Name   string `json:"name"` // the core's
+	Node   string `json:"node,omitempty"`
+	Group  bool   `json:"group,omitempty"`
+	Delay  int    `json:"delay"`
+	Tested bool   `json:"tested"`
 }
 
 // ---- Tick ----

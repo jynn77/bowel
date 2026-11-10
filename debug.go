@@ -41,7 +41,8 @@ func (a *App) separateFromRelease() {
 // set under `mygo dev`, it runs the command written to <dir>/cmd and
 // writes "ok" or an error to <dir>/out. Commands: "shot" (the main window
 // to shot.png), "page <home|activity|providers>", "x <cell>" (expand a
-// cell, "" to collapse), "sub <route>". Off otherwise.
+// cell, "" to collapse), "sub <route>", "tools" (the developer tools list,
+// past the first-run screen). Off otherwise.
 func (a *App) debugDriver() {
 	dir := os.Getenv("MOHO_DEBUG_DIR")
 	if dir == "" || !mygo.IsDev() {
@@ -81,6 +82,11 @@ func (a *App) debugRun(dir, cmd string) string {
 		u.win.Update(func() { u.home.x, u.home.sub = arg, "" })
 	case "sub":
 		u.win.Update(func() { u.home.x, u.home.sub = "routes", arg })
+	case "tools":
+		u.win.Update(func() {
+			u.setup.on = false
+			u.page, u.home.x, u.home.sub, u.home.toolsList = "home", "mode", "", true
+		})
 	case "show":
 		a.showWindow()
 	default:

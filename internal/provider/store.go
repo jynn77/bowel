@@ -65,6 +65,11 @@ type Store struct {
 	// addrs caches Addrs by the provider file it came from: the interface
 	// asks every snapshot, and the file changes only when the provider does.
 	addrs map[string]addrEntry
+
+	// Vet, if set, sees what an update downloaded before it replaces the
+	// provider's file. An error keeps the last good file and is the
+	// update's failure.
+	Vet func(id string, data []byte) error
 }
 
 // addrEntry is what parseAddrs made of a provider file, and which file.
@@ -94,7 +99,12 @@ func (s *Store) Path(id string) string { return filepath.Join(s.dir, id+".txt") 
 
 func (s *Store) saveLocked() error {
 	b, _ := json.MarshalIndent(s.items, "", "  ")
-	return os.WriteFile(s.index(), b, 0o600)
+	// Whole or not at all: a restart may come in the middle of a save.
+	tmp := s.index() + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.index())
 }
 
 func (s *Store) List() []Provider {
@@ -202,6 +212,9 @@ func (s *Store) create(p Provider, data []byte) (Provider, error) {
 	return p, s.saveLocked()
 }
 
+// Content is what provider id's file holds.
+func (s *Store) Content(id string) ([]byte, error) { return os.ReadFile(s.Path(id)) }
+
 // Update downloads a subscription again. Other kinds are left as they are.
 func (s *Store) Update(ctx context.Context, client *http.Client, id string) (Provider, error) {
 	p, ok := s.Get(id)
@@ -214,6 +227,9 @@ func (s *Store) Update(ctx context.Context, client *http.Client, id string) (Pro
 	data, usage, _, err := fetch(ctx, client, p.Source)
 	if err == nil {
 		err = looksLikeNodes(data)
+	}
+	if err == nil && s.Vet != nil {
+		err = s.Vet(id, data)
 	}
 	if err != nil {
 		p, _ = s.update(id, func(p *Provider) { p.Error = err.Error() })

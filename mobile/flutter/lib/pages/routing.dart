@@ -73,14 +73,32 @@ class RoutesPage extends StatefulWidget {
 
 class _RoutesPageState extends State<RoutesPage> {
   Map? _result;
+  String? _host;
+  Object? _routing;
 
   @override
   void initState() {
     super.initState();
+    _routing = widget.app.routing;
+    widget.app.addListener(_routingChanged);
     widget.app.refreshRouting();
   }
 
+  @override
+  void dispose() {
+    widget.app.removeListener(_routingChanged);
+    super.dispose();
+  }
+
+  /// A rule or group that changed can send the tested address elsewhere.
+  void _routingChanged() {
+    if (identical(widget.app.routing, _routing)) return;
+    _routing = widget.app.routing;
+    if (_host != null) _explain(_host!);
+  }
+
   Future<void> _explain(String host) async {
+    _host = host;
     final out = await widget.app.ask('explain', {'host': host});
     if (out is Map && mounted) setState(() => _result = out.isEmpty ? null : out);
   }
@@ -403,7 +421,9 @@ class _GroupPageState extends State<GroupPage> {
           ),
         ));
       }
-      kids.add(Padding(padding: const EdgeInsets.only(top: 8), child: Btn(tr('添加节点', 'Add nodes'), minH: 40, onTap: () => _addOrder(g))));
+      if (_nodes.any((n) => !order.contains(n['name']))) {
+        kids.add(Padding(padding: const EdgeInsets.only(top: 8), child: Btn(tr('添加节点', 'Add nodes'), minH: 40, onTap: () => _addOrder(g))));
+      }
     }
     return section(l, tr('节点策略', 'Node strategy'), kids, top: 8);
   }

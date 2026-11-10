@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/widgets.dart';
 
 import '../app/state.dart';
@@ -183,7 +184,7 @@ class _BoardState extends State<Board> {
         return FlyHost(
           key: _host,
           child: ColoredBox(
-            color: l.hair,
+            color: app.twisted ? l.paper : l.hair,
             child: Stack(
               clipBehavior: Clip.hardEdge,
               children: [
@@ -195,6 +196,7 @@ class _BoardState extends State<Board> {
                     curve: easeCard,
                     child: _Cell(id: id, app: app, box: boxes[id]!, normalBox: normal[id]!, kind: app.x == null ? 'normal' : (app.x == id ? 'expanded' : 'compact')),
                   ),
+                if (app.twisted) Positioned.fill(child: _Walls(boxes: boxes, color: Color.alphaBlend(l.hair, l.paper))),
               ],
             ),
           ),
@@ -332,4 +334,116 @@ class _Rolled extends CustomClipper<Rect> {
 
   @override
   bool shouldReclip(_Rolled old) => old.t != t;
+}
+
+// ---- the twisted lines ----
+
+const _lineSwing = 1.4, _lineWave = 46.0, _lineReach = _lineSwing + 2;
+
+/// How far a line at t along the board bends from its gap. The bulges belong
+/// to the board, so a line that moves keeps them and lines that cross meet.
+double _lineBend(double t) {
+  final u = 2 * math.pi * t / _lineWave;
+  return _lineSwing * (.8 * math.sin(u) + .2 * math.sin(u / 3 + 1));
+}
+
+/// The lines between the cells when they're drawn bent. They follow the
+/// cells, eased the same way the cells are.
+class _Walls extends StatefulWidget {
+  const _Walls({required this.boxes, required this.color});
+  final Map<String, Rect> boxes;
+  final Color color;
+
+  @override
+  State<_Walls> createState() => _WallsState();
+}
+
+class _WallsState extends State<_Walls> with SingleTickerProviderStateMixin {
+  late final _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 560), value: 1);
+  late Map<String, Rect> _from = widget.boxes, _to = widget.boxes;
+
+  Map<String, Rect> _now() {
+    final t = easeCard.transform(_c.value);
+    return {for (final e in _to.entries) e.key: Rect.lerp(_from[e.key] ?? e.value, e.value, t)!};
+  }
+
+  @override
+  void didUpdateWidget(_Walls old) {
+    super.didUpdateWidget(old);
+    final a = widget.boxes;
+    if (a.length == _to.length && a.entries.every((e) => _to[e.key] == e.value)) return;
+    _from = _now();
+    _to = a;
+    _c.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: RepaintBoundary(
+        child: AnimatedBuilder(
+          animation: _c,
+          builder: (context, _) => CustomPaint(size: Size.infinite, painter: _WallsPainter(_now(), widget.color)),
+        ),
+      ),
+    );
+  }
+}
+
+class _WallsPainter extends CustomPainter {
+  _WallsPainter(this.boxes, this.color);
+  final Map<String, Rect> boxes;
+  final Color color;
+
+  void _wavy(Path path, double gap, Offset a, Offset b, bool down) {
+    double along(Offset q) => down ? q.dy : q.dx;
+    Offset at(double t) => down ? Offset(gap + _lineBend(t), t) : Offset(t, gap + _lineBend(t));
+    final pts = <Offset>[a];
+    const step = _lineWave / 8;
+    final tb = along(b);
+    for (var t = ((along(a) / step).floor() + 1) * step; t < tb - step / 4; t += step) {
+      pts.add(at(t));
+    }
+    pts.add(b);
+    path.moveTo(a.dx, a.dy);
+    for (var i = 1; i < pts.length - 1; i++) {
+      final m = (pts[i] + pts[i + 1]) / 2;
+      path.quadraticBezierTo(pts[i].dx, pts[i].dy, m.dx, m.dy);
+    }
+    path.lineTo(b.dx, b.dy);
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path();
+    final w = size.width, h = size.height;
+    Offset meet(double x, double y) => Offset(x + _lineBend(y), y + _lineBend(x));
+    for (final b in boxes.values) {
+      if (b.width < .5 || b.height < .5) continue;
+      final left = b.left < .5, top = b.top < .5, right = b.right > w - .5, bottom = b.bottom > h - .5;
+      final lx = b.left - .5, ty = b.top - .5, rx = b.right + .5, by = b.bottom + .5;
+      if (!right) {
+        _wavy(path, rx, top ? Offset(rx + _lineBend(-_lineReach), -_lineReach) : meet(rx, ty), bottom ? Offset(rx + _lineBend(b.bottom + _lineReach), b.bottom + _lineReach) : meet(rx, by), true);
+      }
+      if (!bottom) {
+        _wavy(path, by, left ? Offset(-_lineReach, by + _lineBend(-_lineReach)) : meet(lx, by), right ? Offset(b.right + _lineReach, by + _lineBend(b.right + _lineReach)) : meet(rx, by), false);
+      }
+    }
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_WallsPainter old) => old.color != color || !mapEquals(old.boxes, boxes);
 }

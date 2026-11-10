@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>bowel · macOS 上的 mihomo 客户端</title>
-<meta name="description" content="bowel 是 macOS 上的 mihomo 客户端：管理节点、路由和规则，查看每条连接，六种皮肤可选。">
-<meta property="og:title" content="bowel · macOS 上的 mihomo 客户端">
-<meta property="og:description" content="macOS 上的 mihomo 客户端。原生绘制，没有 WebView。">
+<title>bowel · 跨平台的 mihomo 客户端</title>
+<meta name="description" content="bowel 是 macOS、Windows、Linux 和 Android 上的 mihomo 客户端：管理节点、路由和规则，查看每条连接，六种皮肤可选。">
+<meta property="og:title" content="bowel · 跨平台的 mihomo 客户端">
+<meta property="og:description" content="macOS、Windows、Linux 和 Android 上的 mihomo 客户端，六种皮肤可选。">
 <meta property="og:image" content="shots/home-zh.webp">
 <meta name="theme-color" content="#f6f4ef" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#171615" media="(prefers-color-scheme: dark)">
@@ -46,7 +46,7 @@
 
 <!-- Hero -->
 <section class="hero">
-  <p class="kicker"><span class="dot good"></span><span class="zh">macOS 代理客户端 · 基于 mihomo</span><span class="en">macOS proxy client · powered by mihomo</span></p>
+  <p class="kicker"><span class="dot good"></span><span class="zh">跨平台代理客户端 · 基于 mihomo</span><span class="en">Cross-platform proxy client · powered by mihomo</span></p>
   <h1>
     <span class="zh">连接两端世界</span>
     <span class="en">Connect two worlds</span>
@@ -55,14 +55,56 @@
     <span class="zh">管理节点、路由和规则，查看每条连接，还有六种皮肤可选。</span>
     <span class="en">Manage nodes, routes and rules, see every connection, and choose from six skins.</span>
   </p>
-  <div class="cta">
-    <a class="btn primary" href="https://github.com/21stware/bowel/releases/latest">
-      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M16.37 12.6c-.02-2.2 1.8-3.26 1.88-3.31-1.03-1.5-2.62-1.7-3.18-1.73-1.35-.14-2.64.8-3.33.8-.69 0-1.74-.78-2.87-.76-1.47.02-2.84.86-3.6 2.18-1.54 2.66-.39 6.6 1.1 8.76.73 1.06 1.6 2.24 2.73 2.2 1.1-.05 1.51-.71 2.84-.71 1.32 0 1.7.71 2.86.69 1.18-.02 1.93-1.07 2.65-2.13.84-1.22 1.18-2.41 1.2-2.47-.03-.01-2.3-.88-2.32-3.5zM14.2 6.13c.6-.73 1.01-1.75.9-2.76-.87.04-1.92.58-2.54 1.3-.56.64-1.05 1.67-.92 2.66.97.08 1.96-.49 2.56-1.2z"/></svg>
-      <span class="zh">下载 macOS 版</span><span class="en">Download for macOS</span>
-    </a>
-    <a class="btn ghost" href="https://github.com/21stware/bowel"><span class="zh">在 GitHub 上查看</span><span class="en">View on GitHub</span></a>
+  <!-- One platform at a time. site.js picks the visitor's, points the links at
+       the latest release's files, and copies this block into #download. -->
+  <div class="get">
+    <div class="get-tabs" role="tablist" aria-label="平台 / Platform">
+      <button type="button" role="tab" data-os="macos" aria-selected="true">macOS</button>
+      <button type="button" role="tab" data-os="windows" aria-selected="false">Windows</button>
+      <button type="button" role="tab" data-os="linux" aria-selected="false">Linux</button>
+      <button type="button" role="tab" data-os="android" aria-selected="false">Android</button>
+    </div>
+    <div class="get-panel" role="tabpanel" data-os="macos">
+      <div class="get-btns">
+        <a class="btn primary" href="https://github.com/21stware/bowel/releases/latest" data-asset="dmg"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg><span class="zh">下载 macOS 版</span><span class="en">Download for macOS</span></a>
+      </div>
+      <p class="or"><span class="zh">或用 Homebrew 安装</span><span class="en">Or install with Homebrew</span></p>
+      <div class="code">
+        <button class="copy-btn" type="button" data-copy="brew install --cask 21stware/tap/bowel"><span class="zh">复制</span><span class="en">Copy</span></button>
+        <pre><code><span class="p">$</span> brew install --cask 21stware/tap/bowel</code></pre>
+      </div>
+      <p class="note"><span class="zh">macOS 12 或更新版本，Apple 芯片。安装包用 Developer ID 签名，并经过 Apple 公证。</span><span class="en">macOS 12 or later, Apple silicon. Signed with a Developer ID and notarized by Apple.</span></p>
+    </div>
+    <div class="get-panel" role="tabpanel" data-os="windows" hidden>
+      <div class="get-btns">
+        <a class="btn primary" href="https://github.com/21stware/bowel/releases/latest" data-asset="exe-amd64"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg><span class="zh">下载 x64 版</span><span class="en">Download for x64</span></a>
+        <a class="btn ghost" href="https://github.com/21stware/bowel/releases/latest" data-asset="exe-arm64"><span class="zh">下载 Arm64 版</span><span class="en">Download for Arm64</span></a>
+      </div>
+      <p class="or"><span class="zh">或在 PowerShell 中运行</span><span class="en">Or run in PowerShell</span></p>
+      <div class="code">
+        <button class="copy-btn" type="button" data-copy="irm https://github.com/21stware/bowel/releases/latest/download/install.ps1 | iex"><span class="zh">复制</span><span class="en">Copy</span></button>
+        <pre><code><span class="p">&gt;</span> irm https://github.com/21stware/bowel/releases/latest/download/install.ps1 | iex</code></pre>
+      </div>
+      <p class="note"><span class="zh">安装包没有代码签名，运行前 Windows 可能会弹出提示。</span><span class="en">The installer isn't code-signed, so Windows may warn you before it runs.</span></p>
+    </div>
+    <div class="get-panel" role="tabpanel" data-os="linux" hidden>
+      <p class="or first"><span class="zh">Debian、Ubuntu 和 Fedora，在终端中运行</span><span class="en">On Debian, Ubuntu and Fedora, run in a terminal</span></p>
+      <div class="code">
+        <button class="copy-btn" type="button" data-copy="curl -fsSL https://21stware.github.io/packages/install.sh | sh"><span class="zh">复制</span><span class="en">Copy</span></button>
+        <pre><code><span class="p">$</span> curl -fsSL https://21stware.github.io/packages/install.sh | sh</code></pre>
+      </div>
+      <p class="get-files"><span class="zh">或下载安装包</span><span class="en">Or download a package</span><span><b>amd64</b> <a href="https://github.com/21stware/bowel/releases/latest" data-asset="deb-amd64">.deb</a><a href="https://github.com/21stware/bowel/releases/latest" data-asset="rpm-amd64">.rpm</a><a href="https://github.com/21stware/bowel/releases/latest" data-asset="tgz-amd64">.tar.gz</a></span><span><b>arm64</b> <a href="https://github.com/21stware/bowel/releases/latest" data-asset="deb-arm64">.deb</a><a href="https://github.com/21stware/bowel/releases/latest" data-asset="rpm-arm64">.rpm</a><a href="https://github.com/21stware/bowel/releases/latest" data-asset="tgz-arm64">.tar.gz</a></span></p>
+      <p class="note"><span class="zh">这条命令会添加已签名的软件源，之后由 <code>apt</code> 或 <code>dnf</code> 更新 bowel。压缩包里的 <code>install.sh</code> 会把 bowel 安装到当前用户的 <code>~/.local</code>。</span><span class="en">The command adds a signed repository, so <code>apt</code> or <code>dnf</code> keeps bowel up to date. The archive's <code>install.sh</code> installs bowel for your user in <code>~/.local</code>.</span></p>
+    </div>
+    <div class="get-panel" role="tabpanel" data-os="android" hidden>
+      <div class="get-btns">
+        <a class="btn primary" href="https://github.com/21stware/bowel/releases/latest" data-asset="apk"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg><span class="zh">下载 APK</span><span class="en">Download the APK</span></a>
+      </div>
+      <p class="note"><span class="zh">Android 8.0 或更新版本，arm64。如有提示请允许浏览器安装应用，首次连接时系统会请求 VPN 权限。</span><span class="en">Android 8.0 or later, arm64. Allow your browser to install apps if asked. Android asks for VPN permission the first time you connect.</span></p>
+    </div>
+    <p class="get-all"><span class="get-ver" hidden></span><a href="https://github.com/21stware/bowel/releases/latest"><span class="zh">所有版本与文件</span><span class="en">All releases and files</span></a></p>
   </div>
-  <p class="fine"><span class="zh">macOS 12+ · Apple 芯片 · 免费 · 已通过 Apple 公证</span><span class="en">macOS 12+ · Apple silicon · Free · Notarized by Apple</span></p>
+  <p class="fine"><span class="zh">macOS、Windows、Linux 和 Android · 免费 · 截图来自 macOS 版</span><span class="en">macOS, Windows, Linux and Android · Free · Screenshots from macOS</span></p>
 
   <div class="stage">
     <figure class="window">
@@ -169,7 +211,7 @@
   <div class="copy">
     <p class="tag">MCP</p>
     <h2><span class="zh">配合 Agent 排查</span><span class="en">Troubleshoot with agents</span></h2>
-    <p><span class="zh">自带 MCP 服务供 Agent 读取状态和排查问题，修改设置默认弹窗询问。</span><span class="en">Includes a built-in MCP server for agents to inspect status, and asks for confirmation by default before changing settings.</span></p>
+    <p><span class="zh">自带 MCP 服务供 Agent 读取状态和排查问题，修改设置默认弹窗询问。下面是 macOS 的命令，Windows 和 Linux 上请换成 bowel 程序所在的路径，Android 版没有 MCP 服务。</span><span class="en">Includes a built-in MCP server for agents to inspect status, and asks for confirmation by default before changing settings. The command below is for macOS; on Windows and Linux, use the path of the bowel program. The Android app has no MCP server.</span></p>
     <div class="code">
       <button class="copy-btn" type="button" data-copy="claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp"><span class="zh">复制</span><span class="en">Copy</span></button>
       <pre><code><span class="p">$</span> claude mcp add --scope user bowel -- \
@@ -187,25 +229,25 @@
 <!-- More -->
 <section class="grid">
   <div class="cell">
-    <h3><span class="zh">网关模式</span><span class="en">Gateway mode</span></h3>
+    <h3><span class="zh">网关模式</span><span class="en">Gateway mode</span> <span class="badge">macOS</span></h3>
     <p><span class="zh">开启后把当前 Mac 作为局域网网关，供电视、手机或游戏机使用。</span><span class="en">Turn this Mac into a local gateway for your TV, phone, or console.</span></p>
     <div class="lan"><span>📺</span><span>🎮</span><span>📱</span><b>→</b><span class="mac">⌘</span><b>→</b><span>🌐</span></div>
   </div>
   <div class="cell">
-    <h3>TUN</h3>
+    <h3>TUN <span class="badge">macOS</span></h3>
     <p><span class="zh">接管不走系统代理的程序，首次开启时需要一次管理员授权。</span><span class="en">Route traffic from apps that bypass system proxies, requiring admin permission once.</span></p>
   </div>
   <div class="cell">
     <h3><span class="zh">菜单栏</span><span class="en">Menu bar</span></h3>
-    <p><span class="zh">在菜单栏切换接管状态、模式与出口节点，图标不显示跳动的网速。</span><span class="en">Switch proxy status, modes, and exit nodes from the menu bar without jittery speed numbers.</span></p>
+    <p><span class="zh">在菜单栏（Windows 和 Linux 上是系统托盘）切换接管状态、模式与出口节点，图标不显示跳动的网速。</span><span class="en">Switch proxy status, modes, and exit nodes from the menu bar, or the system tray on Windows and Linux, without jittery speed numbers.</span></p>
   </div>
   <div class="cell">
     <h3><span class="zh">原生绘制</span><span class="en">Native rendering</span></h3>
-    <p><span class="zh">界面由 Go 编写，GPU 直接渲染，没有 WebView。</span><span class="en">Written in Go and rendered directly by the GPU, with no WebViews.</span></p>
+    <p><span class="zh">桌面版界面由 Go 编写，GPU 直接渲染，没有 WebView。Android 版使用 Flutter，卡片和皮肤与桌面版相同。</span><span class="en">The desktop interface is written in Go and rendered directly by the GPU, with no WebViews. The Android app uses Flutter and has the same cards and skins.</span></p>
   </div>
   <div class="cell">
     <h3><span class="zh">可搜索的设置</span><span class="en">Searchable settings</span></h3>
-    <p><span class="zh">支持按 ⌘F 快速搜索和定位各项设置。</span><span class="en">Press ⌘F to search across all settings.</span></p>
+    <p><span class="zh">在桌面版按 ⌘F（Windows 和 Linux 上是 Ctrl+F）快速搜索和定位各项设置。</span><span class="en">On desktop, press ⌘F (Ctrl+F on Windows and Linux) to search across all settings.</span></p>
   </div>
   <div class="cell">
     <h3><span class="zh">四种语言</span><span class="en">Four languages</span></h3>
@@ -217,12 +259,26 @@
 <section id="download" class="download">
   <img src="icon.png" width="96" height="96" alt="">
   <h2><span class="zh">开始使用 bowel</span><span class="en">Get started with bowel</span></h2>
-  <a class="btn primary big" href="https://github.com/21stware/bowel/releases/latest"><span class="zh">下载 bowel</span><span class="en">Download bowel</span></a>
-  <p class="fine"><span class="zh">macOS 12+ · Apple 芯片 · 免费 · 已通过 Apple 公证</span><span class="en">macOS 12+ · Apple silicon · Free · Notarized by Apple</span></p>
-  <ol class="steps">
-    <li><span class="zh">打开 <code>.dmg</code>，把 bowel 拖入「应用程序」文件夹。</span><span class="en">Open the <code>.dmg</code> and drag bowel into Applications.</span></li>
-    <li><span class="zh">添加 Provider（订阅链接、节点链接或直接扫码），打开接管即可使用。</span><span class="en">Add a Provider (via subscription URL, node link, or QR scan) and enable takeover.</span></li>
-  </ol>
+  <div class="get-slot">
+    <a class="btn primary big" href="https://github.com/21stware/bowel/releases/latest"><span class="zh">下载 bowel</span><span class="en">Download bowel</span></a>
+  </div>
+  <p class="fine"><span class="zh">免费 · iOS 版暂未发布</span><span class="en">Free · iOS is not released yet</span></p>
+  <p class="next"><span class="zh">打开后添加 Provider（订阅链接、节点链接或扫码），打开接管即可使用。</span><span class="en">Then add a Provider (a subscription URL, node links, or a QR code) and turn on takeover.</span></p>
+  <div class="differ">
+    <h3><span class="zh">部分功能因平台而异</span><span class="en">Some features depend on the platform</span></h3>
+    <div class="table">
+      <table>
+        <thead><tr><td></td><th scope="col">macOS</th><th scope="col">Windows</th><th scope="col">Linux</th><th scope="col">Android</th></tr></thead>
+        <tbody>
+        <tr><th scope="row"><span class="zh">接管方式</span><span class="en">Takeover</span></th><td><span class="zh">系统代理或 TUN</span><span class="en">System proxy or TUN</span></td><td><span class="zh">系统代理</span><span class="en">System proxy</span></td><td><span class="zh">手动设置</span><span class="en">Manual</span></td><td><span class="zh">系统 VPN</span><span class="en">System VPN</span></td></tr>
+        <tr><th scope="row"><span class="zh">网关模式</span><span class="en">Gateway mode</span></th><td><span class="zh">支持</span><span class="en">Yes</span></td><td class="no"><span class="zh">不支持</span><span class="en">No</span></td><td class="no"><span class="zh">不支持</span><span class="en">No</span></td><td class="no"><span class="zh">不支持</span><span class="en">No</span></td></tr>
+        <tr><th scope="row"><span class="zh">用摄像头扫描二维码</span><span class="en">Scan QR codes with the camera</span></th><td><span class="zh">支持</span><span class="en">Yes</span></td><td class="no"><span class="zh">不支持</span><span class="en">No</span></td><td class="no"><span class="zh">不支持</span><span class="en">No</span></td><td><span class="zh">支持</span><span class="en">Yes</span></td></tr>
+        <tr><th scope="row"><span class="zh">MCP 服务器</span><span class="en">MCP server</span></th><td><span class="zh">支持</span><span class="en">Yes</span></td><td><span class="zh">支持</span><span class="en">Yes</span></td><td><span class="zh">支持</span><span class="en">Yes</span></td><td class="no"><span class="zh">不支持</span><span class="en">No</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="fine"><span class="zh">bowel 暂时无法在 Linux 上设置系统代理，需要让应用自行连接它的混合端口，默认是 7899。Android 版可以选择不经过 VPN 的应用。</span><span class="en">bowel can't set the system proxy on Linux yet, so point your applications at its mixed port, 7899 by default. On Android, you can choose apps that stay outside the VPN.</span></p>
+  </div>
 </section>
 
 </main>
@@ -232,8 +288,8 @@
     <a class="brand" href="#top"><img src="icon.png" alt="" width="22" height="22"><span>bowel</span></a>
   </div>
   <p>
-    <span class="zh">代理内核基于 <a href="https://github.com/MetaCubeX/mihomo">mihomo</a>（GPL-3.0），作为独立进程运行。界面基于 <a href="https://github.com/egoist/mygo">MyGo</a>。</span>
-    <span class="en">Proxy core powered by <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> (GPL-3.0), running as a separate process. Interface built with <a href="https://github.com/egoist/mygo">MyGo</a>.</span>
+    <span class="zh">代理内核基于 <a href="https://github.com/MetaCubeX/mihomo">mihomo</a>（GPL-3.0），作为独立进程运行。桌面版界面基于 <a href="https://github.com/egoist/mygo">MyGo</a>，Android 版基于 <a href="https://flutter.dev">Flutter</a>。</span>
+    <span class="en">Proxy core powered by <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> (GPL-3.0), running as a separate process. The desktop interface is built with <a href="https://github.com/egoist/mygo">MyGo</a>, and the Android app with <a href="https://flutter.dev">Flutter</a>.</span>
   </p>
   <p><a href="https://github.com/21stware/bowel">GitHub</a> · <a href="https://github.com/21stware/bowel/releases">Releases</a> · <a href="https://github.com/21stware/bowel/blob/main/docs/architecture.md"><span class="zh">工作原理</span><span class="en">How it works</span></a></p>
 </footer>

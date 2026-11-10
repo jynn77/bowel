@@ -7,6 +7,7 @@ import 'package:bowel/board/fly.dart';
 import 'package:bowel/pages/frame.dart';
 import 'package:bowel/pages/routing.dart';
 import 'package:bowel/pages/sheet.dart';
+import 'package:bowel/ui/atoms.dart';
 import 'package:bowel/ui/skin.dart';
 import 'package:flutter/material.dart' show DefaultMaterialLocalizations, Material, MaterialType;
 import 'package:flutter/services.dart';
@@ -270,5 +271,37 @@ void main() {
     expect(_ops.single, containsPair('op', 'moveService'));
     expect(_ops.single, containsPair('id', 'openai'));
     expect(_ops.single, containsPair('to', 'solo'));
+  });
+
+  testWidgets('a field opened beside a nested navigator takes the focus', (tester) async {
+    final open = ValueNotifier(false);
+    await tester.pumpWidget(Localizations(
+      locale: const Locale('en'),
+      delegates: const [DefaultMaterialLocalizations.delegate, DefaultWidgetsLocalizations.delegate],
+      child: MediaQuery(
+        data: const MediaQueryData(size: Size(360, 760)),
+        child: Skin(
+          look: Look.of('paper', false),
+          child: Material(
+            type: MaterialType.transparency,
+            child: Overlay(initialEntries: [
+              OverlayEntry(
+                builder: (_) => ValueListenableBuilder(
+                  valueListenable: open,
+                  builder: (context, shown, _) => Stack(children: [
+                    Navigator(onGenerateRoute: (_) => PageRouteBuilder<void>(pageBuilder: (_, _, _) => const SizedBox.expand())),
+                    if (shown) const BareField(hint: 'name', autofocus: true),
+                  ]),
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    ));
+    await _settle(tester);
+    open.value = true;
+    await _settle(tester);
+    expect(FocusManager.instance.primaryFocus?.context?.findAncestorWidgetOfExactType<BareField>(), isNotNull);
   });
 }

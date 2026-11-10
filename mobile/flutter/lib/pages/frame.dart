@@ -148,7 +148,7 @@ class AndroidBar extends StatelessWidget {
   final AppState app;
 
   static List<(IconData, String)> get items => [
-        (Icons.speed, tr('今日', 'Today')),
+        (Icons.speed, tr('代理', 'Proxy')),
         (Icons.graphic_eq, tr('活动', 'Activity')),
         (Icons.layers, 'Provider'),
         (Icons.settings, tr('设置', 'Settings')),

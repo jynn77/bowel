@@ -100,31 +100,21 @@ func TestGlobalKeepsOverlay(t *testing.T) {
 func TestDevNetworkDNSWithoutTun(t *testing.T) {
 	in := devInput("rule", devnet.Compile(devnet.Options{}, devEnv()))
 	dns, _ := build(t, in)["dns"].(map[string]any)
-	// The core keeps a resolver of its own without TUN too — a node whose
-	// server is a domain, or one with ECH, needs it — answering with real
-	// addresses since no tunnel maps fake ones back.
-	if dns == nil || dns["enhanced-mode"] != "redir-host" || dns["listen"] != nil {
+	if dns == nil || dns["enhanced-mode"] != "normal" || dns["listen"] != nil || !slices.Equal(strs(dns["nameserver"]), []string{"system"}) {
 		t.Fatalf("%+v", dns)
-	}
-	if got := strs(dns["nameserver"]); len(got) == 0 || got[0] == "system" {
-		t.Fatalf("nameserver %v", got)
 	}
 	policy, _ := dns["nameserver-policy"].(map[string]any)
 	if got := strs(policy["+.aws"]); !slices.Equal(got, []string{"127.0.0.1:5053"}) {
 		t.Errorf("policy %+v", policy)
 	}
-	// Nothing split: the resolver is the settings', with no policy of its own.
+	// Nothing split: the resolver is still there — the nodes' own names need
+	// one — but it carries no policy of the overlay's.
 	alone, _ := build(t, devInput("rule", devnet.Compile(devnet.Options{}, devnet.Env{})))["dns"].(map[string]any)
-	if alone == nil {
-		t.Fatal("no resolver at all")
+	if alone == nil || alone["enable"] != true {
+		t.Fatalf("no resolver with nothing split: %v", alone)
 	}
-	// What is left is the LAN's own names, which only the system knows.
-	if policy, _ := alone["nameserver-policy"].(map[string]any); len(policy) > 0 {
-		for pattern, servers := range policy {
-			if got := strs(servers); !slices.Equal(got, []string{"system"}) {
-				t.Errorf("a catalog alone sends %s to %v", pattern, got)
-			}
-		}
+	if _, ok := alone["nameserver-policy"]; ok {
+		t.Errorf("a catalog alone brings a policy: %+v", alone)
 	}
 }
 
@@ -175,13 +165,14 @@ func TestDevNetworkOffLeavesConfigAlone(t *testing.T) {
 			t.Errorf("%s is there with nothing to add", k)
 		}
 	}
-	// The resolver is the core's own, not the overlay's.
+	// The resolver is the core's own, not the overlay's: it is there with
+	// nothing to add, and carries none of the overlay.
 	dns, _ := cfg["dns"].(map[string]any)
 	if dns == nil || dns["enable"] != true {
-		t.Errorf("no resolver of the core's own: %+v", dns)
+		t.Fatalf("no resolver of the core's own: %v", dns)
 	}
-	if policy, _ := dns["nameserver-policy"].(map[string]any); len(policy) != 0 {
-		t.Errorf("the overlay left a policy behind: %+v", policy)
+	if _, ok := dns["nameserver-policy"]; ok {
+		t.Errorf("the overlay left a policy behind: %+v", dns)
 	}
 }
 

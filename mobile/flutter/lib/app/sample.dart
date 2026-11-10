@@ -3,12 +3,15 @@ import 'i18n.dart';
 // shots use; once the core is attached, AppState replaces them with real ones.
 
 class Node {
-  const Node(this.name, this.flag, this.city, this.source, this.proto, this.provider, this.delay, this.history, {this.providerId = ''});
+  const Node(this.name, this.flag, this.city, this.source, this.proto, this.provider, this.delay, this.history, {this.providerId = '', this.lat, this.lon});
 
   final String name, flag, city, source, proto, provider;
 
   /// Which Provider this is from. Two Providers can share a name.
   final String providerId;
+
+  /// Where it exits, when that is known in degrees.
+  final double? lat, lon;
 
   /// Milliseconds; 0 means the last test timed out, -1 that there was none.
   final int delay;
@@ -215,26 +218,30 @@ String sizeText(int bytes) {
 }
 
 class Place {
-  const Place(this.lat, this.lon, this.city, {this.edge = false, this.west = false});
+  const Place(this.lat, this.lon, this.city);
   final double lat, lon;
   final String city;
-  final bool edge, west;
 }
 
 const places = {
   'hk': Place(22.3, 114.2, '香港'),
   'jp': Place(35.7, 139.7, '东京'),
   'sg': Place(1.35, 103.8, '新加坡'),
-  'us': Place(41, 0, '洛杉矶', edge: true),
+  'us': Place(34.05, -118.24, '洛杉矶'),
   'tw': Place(25, 121.5, '台北'),
   'kr': Place(37.5, 127, '首尔'),
-  'ca': Place(44, 0, '多伦多', edge: true),
-  'au': Place(8, 0, '悉尼', edge: true),
-  'gb': Place(42, 0, '伦敦', west: true),
-  'de': Place(38, 0, '法兰克福', west: true),
-  'fr': Place(34, 0, '巴黎', west: true),
-  'nl': Place(40, 0, '阿姆斯特丹', west: true),
+  'ca': Place(43.65, -79.38, '多伦多'),
+  'au': Place(-33.87, 151.21, '悉尼'),
+  'gb': Place(51.5, -.13, '伦敦'),
+  'de': Place(50.11, 8.68, '法兰克福'),
+  'fr': Place(48.86, 2.35, '巴黎'),
+  'nl': Place(52.37, 4.9, '阿姆斯特丹'),
 };
+
+const sampleYou = Place(31.2, 121.5, '上海');
+
+/// Where a node exits: its measured or guessed spot, else its region's city.
+Place? placeOf(Node n) => n.lat != null && n.lon != null ? Place(n.lat!, n.lon!, n.city) : places[n.flag];
 
 List<Conn> conns = const [
   Conn(host: 'googlevideo.com', app: 'YouTube', route: 'media', routeName: '流媒体', node: '新加坡 01', rate: '1.15 MB/s', dur: '2:14', status: 'active', rule: 'GeoSite youtube', ip: '142.250.66.14', net: 'TCP', port: 443, total: '↓ 84.2 MB  ↑ 1.4 MB'),

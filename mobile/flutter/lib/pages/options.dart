@@ -131,7 +131,7 @@ class _OptionsPageState extends State<OptionsPage> {
   Widget build(BuildContext context) {
     final l = Skin.of(context);
     if (_s == null) return SubPage(title: tr('内核选项', 'Core options'), children: []);
-    final canGeo = _s!['canUpdateGeo'] == true && Platform.isAndroid;
+    final canGeo = _s!['canUpdateGeo'] == true;
     return SubPage(
       title: tr('内核选项', 'Core options'),
       actions: [
@@ -152,13 +152,14 @@ class _OptionsPageState extends State<OptionsPage> {
         section(l, tr('域名嗅探', 'Domain sniffing'), [for (final f in _sniff) _field(l, f)]),
         if (canGeo)
           section(l, tr('Geo 数据', 'Geo data'), [
-            for (final f in _geo) _field(l, f),
+            // iOS has no core running to refresh or read MMDB: only the two lists.
+            for (final f in Platform.isIOS ? _geo.where((f) => f.key == 'geoipUrl' || f.key == 'geositeUrl') : _geo) _field(l, f),
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Btn(tr('立即更新', 'Update now'), minH: 40, onTap: _geoBusy ? null : () async {
                 setState(() => _geoBusy = true);
                 app.say(tr('正在更新', 'Updating'), ms: 0);
-                if (await app.send('updateGeo')) app.say(tr('已更新', 'Updated'));
+                if (await app.send('updateGeo')) app.say(Platform.isIOS ? tr('已更新，下次打开 VPN 时生效', 'Updated. Takes effect the next time VPN turns on') : tr('已更新', 'Updated'));
                 if (mounted) setState(() => _geoBusy = false);
               }),
             ),

@@ -314,6 +314,11 @@ func (c *Client) HealthCheck(ctx context.Context, provider string) error {
 	return c.do(ctx, http.MethodGet, "/providers/proxies/"+url.PathEscape(provider)+"/healthcheck", nil, nil)
 }
 
+// ReloadRuleSet makes the core read a rule-provider again.
+func (c *Client) ReloadRuleSet(ctx context.Context, name string) error {
+	return c.do(ctx, http.MethodPut, "/providers/rules/"+url.PathEscape(name), nil, nil)
+}
+
 // UpdateGeo makes the core download the geo databases again, from the
 // config's geox-url. It answers before the download ends.
 func (c *Client) UpdateGeo(ctx context.Context) error {

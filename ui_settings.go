@@ -1114,6 +1114,7 @@ func (u *UI) aboutSection(c *ui.Context, p *pal, _ settings.Settings) {
 			})
 		})
 	}
+	u.updateRow(c, p)
 	optRow(c, p, i18n.T("运行配置", "Running config"), i18n.T("bowel 生成、mihomo 正在用的配置文件", "The config file bowel writes and mihomo runs on"), func() {
 		// Where the file is shown is the platform's: Finder on the Mac,
 		// Explorer on Windows.

@@ -64,7 +64,7 @@ class _SettingsHome extends StatefulWidget {
 
 class _SettingsHomeState extends State<_SettingsHome> {
   Widget _skins(BuildContext context, Look l) {
-    final dark = MediaQuery.platformBrightnessOf(context) == Brightness.dark;
+    final dark = widget.app.wantsDark(MediaQuery.platformBrightnessOf(context));
     final ids = skinDefs.keys.toList();
     return Padding(
       padding: const EdgeInsets.only(top: 10, bottom: 6),
@@ -76,6 +76,64 @@ class _SettingsHomeState extends State<_SettingsHome> {
       }),
     );
   }
+
+  Widget _appearance(Look l) {
+    final app = widget.app;
+    final k = skinDefs[app.skin] ?? skinDefs['paper']!;
+    if (k.light == null || k.dark == null) {
+      return navRow(l, tr('颜色模式', 'Color mode'), k.light == null ? tr('这款皮肤只有深色', 'This skin is dark only') : tr('这款皮肤只有浅色', 'This skin is light only'));
+    }
+    final names = {'system': tr('跟随系统', 'System'), 'light': tr('浅色', 'Light'), 'dark': tr('深色', 'Dark')};
+    return navRow(l, tr('颜色模式', 'Color mode'), names[app.appearance]!, onTap: () => pickSheet<String>(app, tr('颜色模式', 'Color mode'), [for (final e in names.entries) PickOption(e.key, e.value)], app.setAppearance, value: app.appearance));
+  }
+
+  Widget _accents(Look l) {
+    final app = widget.app;
+    final own = (skinDefs[app.skin] ?? skinDefs['paper']!).accentD;
+    final names = [tr('青柠', 'Lime'), tr('靛蓝', 'Indigo'), tr('珊瑚', 'Coral'), tr('青绿', 'Teal'), tr('桃红', 'Pink'), tr('墨色', 'Ink')];
+    bool isOn(String hex) => app.accent.isEmpty ? accentColor(hex, true) == own || _hexOf(hex) == own : app.accent.toLowerCase() == hex.toLowerCase();
+    final preset = accentPresets.any((p) => isOn(p.$1));
+    Widget dot(String label, Color fill, bool on, VoidCallback tap, {Widget? child}) => Tap(
+          onTap: tap,
+          label: label,
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Center(
+              child: Container(
+                width: 32,
+                height: 32,
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: on ? l.ink : const Color(0x00000000), width: 1.5)),
+                child: Container(alignment: Alignment.center, decoration: BoxDecoration(shape: BoxShape.circle, color: fill, border: Border.all(color: l.hair)), child: child),
+              ),
+            ),
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.only(top: 10, bottom: 2),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(tr('主题色', 'Theme color'), style: l.text(15, lh: 21)),
+        const SizedBox(height: 2),
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          for (final (i, p) in accentPresets.indexed) dot(names[i], p.$1 == 'ink' ? l.ink : accentColor(p.$1, l.isDark)!, isOn(p.$1), () => app.setAccent(p.$1)),
+          dot(tr('自定义', 'Custom'), preset ? l.paper2 : (accentColor(app.accent, l.isDark) ?? l.paper2), !preset, () {
+            inputSheet(app, tr('主题色', 'Theme color'), (v) {
+              var hex = v.trim().toUpperCase();
+              if (hex.isNotEmpty && !hex.startsWith('#')) hex = '#$hex';
+              if (!validAccent(hex)) {
+                app.say(tr('主题色要写成 #RRGGBB', 'The theme color must be #RRGGBB'));
+                return;
+              }
+              app.setAccent(hex);
+            }, hint: '#RRGGBB', initial: app.accent == 'ink' ? '' : app.accent);
+          }, child: preset ? Text('#', style: l.text(13, weight: 700, color: l.ink2, lh: 16)) : null),
+        ]),
+      ]),
+    );
+  }
+
+  Color? _hexOf(String hex) => hex == 'ink' ? null : Color(0xFF000000 | int.parse(hex.substring(1), radix: 16));
 
   Widget _skin(Look l, String id, Look p) {
     final on = widget.app.skin == id;
@@ -124,7 +182,12 @@ class _SettingsHomeState extends State<_SettingsHome> {
                 ] else
                   toggleRow(l, tr('断线后自动接管', 'Reconnect automatically'), app.vpnOnDemand, () => app.setOnDemand(!app.vpnOnDemand), sub: tr('网络恢复或切换后自动重连，下次开启 VPN 时生效', 'Reconnects when the network returns or changes. Applies the next time VPN turns on.')),
               ]),
-              section(l, tr('外观', 'Appearance'), [_skins(context, l)]),
+              section(l, tr('外观', 'Appearance'), [
+                _skins(context, l),
+                _appearance(l),
+                navRow(l, tr('边框', 'Borders'), app.twisted ? tr('弯曲', 'Twisted') : tr('笔直', 'Straight'), onTap: () => pickSheet<bool>(app, tr('边框', 'Borders'), [PickOption(false, tr('笔直', 'Straight')), PickOption(true, tr('弯曲', 'Twisted'))], app.setTwisted, value: app.twisted)),
+                _accents(l),
+              ]),
               section(l, tr('路由与规则', 'Routes and rules'), [
                 navRow(l, tr('路由组', 'Route groups'), tr('{0} 个', '{0}', [app.ruleTargets.length]), onTap: () => pushPage(context, RoutesPage(app: app))),
                 navRow(l, tr('我的规则', 'My rules'), tr('{0} 条', '{0}', [app.userRules]), sub: tr('让某个域名、关键词或 IP 段走指定路由', 'Send a domain, keyword or IP range through a chosen route'), onTap: () => pushPage(context, MyRulesPage(app: app))),

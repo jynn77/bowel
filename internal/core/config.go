@@ -34,9 +34,17 @@ type ProviderRef struct {
 	Path string
 }
 
+// RuleSetRef is a rule set whose file is there to be read.
+type RuleSetRef struct {
+	ID       string
+	Path     string
+	Behavior string
+}
+
 // Input is everything the runtime config is made of.
 type Input struct {
 	Providers []ProviderRef
+	RuleSets  []RuleSetRef // a set with no entry here has no rule: the core refuses a RULE-SET it can't find
 	Routes    []routes.Route
 	UserRules []routes.UserRule // sorted in with the routes' own, the more specific first
 	Mode      string
@@ -59,6 +67,11 @@ type Input struct {
 
 	// Dev keeps the machine's own networks off the proxy; see devnet.
 	Dev devnet.Overlay
+
+	// Imported, when set, is the routing to use instead of Routes: a
+	// provider's own nodes, groups and rules. UserRules and RuleSets, which
+	// name route groups it doesn't have, are left out with the rest.
+	Imported *Imported
 
 	// Options are the 设置 window's; zero values fall back to Moho's.
 	Options
@@ -220,6 +233,137 @@ func BuildConfig(in Input) ([]byte, error) {
 		return g
 	}
 	var groups []any
+	var rules []string
+	var err error
+	if im := in.Imported; im != nil {
+		if groups, err = im.runtimeGroups(); err != nil {
+			return nil, err
+		}
+		rules = importedRules(in.Mode, dev, im.Rules)
+		if len(im.Proxies) > 0 {
+			out, _ := cfg["proxies"].([]any)
+			for _, p := range im.Proxies {
+				out = append(out, p)
+			}
+			cfg["proxies"] = out
+		}
+		for name, p := range im.ProxyProviders {
+			if _, taken := providers[name]; taken {
+				return nil, fmt.Errorf(i18n.T("「%s」这个名字是 bowel 自己用的", "The name %s is bowel's own"), name)
+			}
+			providers[name] = p
+			use = append(use, name) // the probe has to reach these nodes too
+		}
+		if len(providers) > 0 {
+			cfg["proxy-providers"] = providers
+		}
+		if len(im.RuleProviders) > 0 {
+			cfg["rule-providers"] = im.RuleProviders
+		}
+		if len(im.SubRules) > 0 {
+			cfg["sub-rules"] = im.SubRules
+		}
+	} else if groups, rules, err = templateRouting(in, o, dev, cfg, use, withNodes); err != nil {
+		return nil, err
+	}
+	groups = append(groups, withNodes(map[string]any{"name": ProbeGroup, "type": "select"}, "DIRECT"))
+	cfg["proxy-groups"] = groups
+	cfg["rules"] = rules
+	cfg["listeners"] = []any{map[string]any{
+		"name": "moho-probe", "type": "mixed", "listen": "127.0.0.1", "port": in.ProbePort, "proxy": ProbeGroup,
+	}}
+
+	if in.Tun {
+		tun := map[string]any{
+			"enable": true, "stack": o.TunStack, "auto-route": true, "auto-detect-interface": o.AutoDetectInterface,
+			"strict-route": o.StrictRoute, "dns-hijack": o.DNSHijack, "mtu": o.TunMTU,
+			"endpoint-independent-nat": o.EndpointIndependentNAT,
+		}
+		if o.TunDevice != "" {
+			tun["device"] = o.TunDevice
+		}
+		if len(dev.TunExclude) > 0 {
+			tun["route-exclude-address"] = dev.TunExclude
+		}
+		cfg["tun"] = tun
+	}
+	gateway := in.Tun && in.Gateway
+	if gateway {
+		o.DNSMode = "fake-ip"
+	}
+	policy := dnsPolicy(o.NameserverPolicy, dev.Policy)
+	switch {
+	case in.Tun || o.DNS:
+		dns := map[string]any{
+			"enable": true, "ipv6": o.IPv6, "enhanced-mode": o.DNSMode,
+			"default-nameserver": o.DefaultNameservers,
+			"nameserver":         o.Nameservers,
+			"use-hosts":          o.UseHosts,
+			"use-system-hosts":   o.UseSystemHosts,
+			"prefer-h3":          o.PreferH3,
+			"respect-rules":      o.RespectRules,
+		}
+		if o.DNSMode == "fake-ip" {
+			dns["fake-ip-range"] = o.FakeIPRange
+			dns["fake-ip-filter"] = devnet.Merge(o.FakeIPFilter, dev.FakeIPFilter)
+		}
+		if len(o.Fallback) > 0 {
+			dns["fallback"] = o.Fallback
+		}
+		if len(o.ProxyNameservers) > 0 {
+			dns["proxy-server-nameserver"] = o.ProxyNameservers
+		}
+		for _, pattern := range dev.SystemDNS {
+			if _, ok := policy[pattern]; !ok {
+				policy[pattern] = []string{"system"}
+			}
+		}
+		if len(policy) > 0 {
+			dns["nameserver-policy"] = policy
+		}
+		switch {
+		case gateway:
+			dns["listen"] = "0.0.0.0:53"
+		case in.Tun:
+			dns["listen"] = fmt.Sprintf("127.0.0.1:%d", LocalDNSPort)
+		}
+		cfg["dns"] = dns
+	case len(dev.Policy) > 0:
+		// Without a resolver of its own the core asks the system's servers
+		// directly, which knows nothing of split DNS: this resolver is the
+		// system's too, but for the domains that have servers of their own.
+		cfg["dns"] = map[string]any{
+			"enable": true, "ipv6": o.IPv6, "enhanced-mode": "normal", "nameserver": []string{"system"},
+			"use-hosts": o.UseHosts, "use-system-hosts": o.UseSystemHosts, "nameserver-policy": policy,
+		}
+	default:
+		// Neither TUN nor the built-in switch nor developer networks: the core
+		// used to be given no resolver at all here. It needs one for the
+		// nodes' own names, not only for the traffic's — a node whose server
+		// is a domain cannot be dialled without it, and ECH asks DNS for its
+		// config before the TLS handshake starts — so exactly those nodes
+		// failed to test while every other provider was fine. Normal mode
+		// answers with real addresses: with no tunnel there is nothing to map
+		// fake ones back from.
+		ns := o.Nameservers
+		if len(ns) == 0 {
+			ns = DefaultNameservers
+		}
+		dns := map[string]any{
+			"enable": true, "ipv6": o.IPv6, "enhanced-mode": "normal", "nameserver": ns,
+			"use-hosts": o.UseHosts, "use-system-hosts": o.UseSystemHosts,
+		}
+		if len(policy) > 0 {
+			dns["nameserver-policy"] = policy
+		}
+		cfg["dns"] = dns
+	}
+	return yaml.Marshal(cfg)
+}
+
+// templateRouting is the groups and rules of Moho's own route groups.
+func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any, use []string, withNodes func(map[string]any, ...string) map[string]any) ([]any, []string, error) {
+	var groups []any
 	for _, r := range in.Routes {
 		if r.Direct {
 			continue
@@ -255,8 +399,18 @@ func BuildConfig(in Input) ([]byte, error) {
 		}
 		groups = append(groups, withNodes(map[string]any{"name": routes.Group(r), "type": "select"}, members...))
 	}
+	sets := map[string]any{}
+	for _, s := range in.RuleSets {
+		sets[routes.RuleSetProvider(s.ID)] = map[string]any{"type": "file", "behavior": s.Behavior, "format": "yaml", "path": s.Path}
+	}
+	if len(sets) > 0 {
+		cfg["rule-providers"] = sets
+	}
 	var mine, rest []string
 	for _, l := range routes.Lines(in.Routes, in.UserRules) {
+		if _, ok := sets[routes.RuleSetProvider(l.Set)]; l.Set != "" && !ok {
+			continue
+		}
 		for _, r := range in.Routes {
 			if r.ID != l.Route {
 				continue
@@ -282,86 +436,9 @@ func BuildConfig(in Input) ([]byte, error) {
 		}
 	}
 	if def.Name == "" {
-		return nil, errors.New(i18n.T("模板里没有默认路由", "The template has no default route"))
+		return nil, nil, errors.New(i18n.T("模板里没有默认路由", "The template has no default route"))
 	}
-	rules := rulesFor(in.Mode, dev, mine, rest, routes.Group(def))
-	groups = append(groups, withNodes(map[string]any{"name": ProbeGroup, "type": "select"}, "DIRECT"))
-	cfg["proxy-groups"] = groups
-	cfg["rules"] = rules
-	cfg["listeners"] = []any{map[string]any{
-		"name": "moho-probe", "type": "mixed", "listen": "127.0.0.1", "port": in.ProbePort, "proxy": ProbeGroup,
-	}}
-
-	if in.Tun {
-		tun := map[string]any{
-			"enable": true, "stack": o.TunStack, "auto-route": true, "auto-detect-interface": o.AutoDetectInterface,
-			"strict-route": o.StrictRoute, "dns-hijack": o.DNSHijack, "mtu": o.TunMTU,
-			"endpoint-independent-nat": o.EndpointIndependentNAT,
-		}
-		if o.TunDevice != "" {
-			tun["device"] = o.TunDevice
-		}
-		if len(dev.TunExclude) > 0 {
-			tun["route-exclude-address"] = dev.TunExclude
-		}
-		cfg["tun"] = tun
-	}
-	gateway := in.Tun && in.Gateway
-	if gateway {
-		o.DNSMode = "fake-ip"
-	}
-	// The core always gets a resolver of its own, TUN or no TUN. It needs one
-	// for the nodes' own names, not only for the traffic: a node whose server
-	// is a domain cannot be dialled without it, and VLESS' ECH asks DNS for
-	// its config before the TLS handshake even starts. With TUN off and the
-	// built-in DNS switch off, nothing else gave it one, and exactly those
-	// nodes — and nothing else — failed to test or connect.
-	policy := dnsPolicy(o.NameserverPolicy, dev.Policy)
-	{
-		mode := o.DNSMode
-		if !in.Tun && !gateway && mode == "fake-ip" {
-			// No tunnel to map fake addresses back from: answer with real
-			// ones, as the system resolver did.
-			mode = "redir-host"
-		}
-		dns := map[string]any{
-			"enable": true, "ipv6": o.IPv6, "enhanced-mode": mode,
-			"default-nameserver": o.DefaultNameservers,
-			"nameserver":         o.Nameservers,
-			"use-hosts":          o.UseHosts,
-			"use-system-hosts":   o.UseSystemHosts,
-			"prefer-h3":          o.PreferH3,
-			"respect-rules":      o.RespectRules,
-		}
-		if mode == "fake-ip" {
-			dns["fake-ip-range"] = o.FakeIPRange
-			dns["fake-ip-filter"] = devnet.Merge(o.FakeIPFilter, dev.FakeIPFilter)
-		}
-		if len(o.Fallback) > 0 {
-			dns["fallback"] = o.Fallback
-		}
-		if len(o.ProxyNameservers) > 0 {
-			dns["proxy-server-nameserver"] = o.ProxyNameservers
-		}
-		for _, pattern := range dev.SystemDNS {
-			if _, ok := policy[pattern]; !ok {
-				policy[pattern] = []string{"system"}
-			}
-		}
-		if len(policy) > 0 {
-			dns["nameserver-policy"] = policy
-		}
-		switch {
-		case gateway:
-			dns["listen"] = "0.0.0.0:53"
-		case in.Tun || o.DNS:
-			// TUN's own resolver, and what the built-in DNS switch asks for
-			// without it: an address on this machine for apps to point at.
-			dns["listen"] = fmt.Sprintf("127.0.0.1:%d", LocalDNSPort)
-		}
-		cfg["dns"] = dns
-	}
-	return yaml.Marshal(cfg)
+	return groups, rulesFor(in.Mode, dev, mine, rest, routes.Group(def)), nil
 }
 
 // rulesFor is the rule list. Outside rule mode the core would ignore the

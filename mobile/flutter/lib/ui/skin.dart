@@ -48,6 +48,30 @@ class SkinDef {
   final double round;
 }
 
+/// The theme colors offered as swatches, the desktop's. Some need a darker or
+/// lighter color on one paper: a lime that glows on graphite is all but white
+/// on paper. "ink" is none, the interface in black and white.
+const accentPresets = <(String, String?, String?)>[
+  ('#DDFB4C', '#7A9E00', null),
+  ('#4B3BF5', null, '#7B6DFF'),
+  ('#FF6A3D', '#E8552A', null),
+  ('#14B8A6', '#0E9F8F', null),
+  ('#FF5FA2', '#E54888', null),
+  ('ink', null, null),
+];
+
+bool validAccent(String a) => a == 'ink' || RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(a);
+
+Color? _hex(String a) => RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(a) ? Color(0xFF000000 | int.parse(a.substring(1), radix: 16)) : null;
+
+/// The color drawn for a theme color on the given paper; null for none set.
+Color? accentColor(String a, bool dark) {
+  for (final (hex, light, night) in accentPresets) {
+    if (hex.toLowerCase() == a.toLowerCase()) return _hex((dark ? night : light) ?? hex);
+  }
+  return _hex(a);
+}
+
 const routeIds = ['default', 'ai', 'media', 'dev', 'direct'];
 
 double _channel(double v) => v <= .04045 ? v / 12.92 : math.pow((v + .055) / 1.055, 2.4).toDouble();
@@ -110,11 +134,13 @@ class Look {
     required this.glow,
   });
 
-  factory Look.of(String skin, bool dark) {
+  /// [custom] is the user's theme color, as [accentPresets] names one or as
+  /// #RRGGBB; "" keeps the skin's own.
+  factory Look.of(String skin, bool dark, {String custom = ''}) {
     final k = skinDefs[skin] ?? skinDefs['paper']!;
     final p = (dark ? k.dark : null) ?? k.light ?? k.dark!;
     final isDark = identical(p, k.dark);
-    final accent = isDark ? k.accentD : k.accentL!;
+    final accent = custom == 'ink' ? p.ink : (accentColor(custom, isDark) ?? (isDark ? k.accentD : k.accentL!));
     const darkInk = Color(0xFF171615), white = Color(0xFFFFFFFF);
     return Look._(
       id: skin,
@@ -137,7 +163,7 @@ class Look {
       warnT: _legible(p.warn, p.sheet, p.ink),
       signalT: _legible(p.signal, p.sheet, p.ink),
       accent: accent,
-      onAccent: contrast(darkInk, accent) >= contrast(white, accent) ? darkInk : white,
+      onAccent: custom == 'ink' ? p.paper : (contrast(darkInk, accent) >= contrast(white, accent) ? darkInk : white),
       segOn: isDark ? Color.lerp(p.paper2, p.ink, .2)! : p.sheet,
       routes: p.routes,
       font: k.font,

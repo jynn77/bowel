@@ -76,6 +76,14 @@ type Settings struct {
 	Rules []routes.UserRule `json:"rules"`
 	// Routing is what the user changed about route groups and services.
 	Routing routes.Plan `json:"routing,omitzero"`
+	// ImportedRouting is the provider whose own groups and rules are used
+	// in place of Routing and Rules, which are kept for coming back; "" for
+	// Moho's own routing.
+	ImportedRouting string `json:"importedRouting,omitempty"`
+	// CommonRegions are the country codes the 地区 row of every route group
+	// leads with, in this order; none means the regions with the most nodes.
+	// It only says what is shown: no group's range depends on it.
+	CommonRegions []string `json:"commonRegions,omitempty"`
 
 	// StartHidden: opened at login, Moho stays in the menu bar.
 	StartHidden bool `json:"startHidden"`
@@ -272,6 +280,7 @@ func (s Settings) Clone() Settings {
 	s.Rules = slices.Clone(s.Rules)
 	s.StripRules = slices.Clone(s.StripRules)
 	s.Routing = s.Routing.Clone()
+	s.CommonRegions = slices.Clone(s.CommonRegions)
 	s.Options = s.Options.Clone()
 	if s.RouteTargets != nil {
 		m := make(map[string][]routes.Target, len(s.RouteTargets))
@@ -308,7 +317,17 @@ func (st *Store) Update(fn func(*Settings)) (Settings, error) {
 	fn(&st.s)
 	st.gen++
 	b, _ := json.MarshalIndent(st.s, "", "  ")
-	return st.s.Clone(), os.WriteFile(st.path, b, 0o600)
+	return st.s.Clone(), writeAtomic(st.path, b)
+}
+
+// writeAtomic replaces the file whole, so that quitting or restarting in the
+// middle of a save leaves the old settings and not half of the new ones.
+func writeAtomic(path string, b []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // ResetCore puts the core's options back to Moho's defaults. What decides

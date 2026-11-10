@@ -276,7 +276,7 @@ class _ConnRow extends StatelessWidget {
                   Expanded(child: Text(c.err!, style: l.text(13.5, lh: 19))),
                 ]),
               ),
-            _kv(l, tr('目标', 'Target'), '${c.ip}:${c.port} · ${c.net}'),
+            _kv(l, tr('目标', 'Target'), '${c.ip.isEmpty ? c.host : c.ip}:${c.port} · ${c.net}'),
             _RuleKv(app: app, c: c),
             _kv(l, tr('路由', 'Route'), '${c.routeName}${c.node.isEmpty ? '' : ' → ${c.node}'}'),
             _kv(l, tr('流量', 'Traffic'), c.total),

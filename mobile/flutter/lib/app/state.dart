@@ -23,7 +23,7 @@ class RouteCfg {
   String? broken;
 }
 
-/// What the 今日 page says is wrong with a running tunnel.
+/// What the 代理 page says is wrong with a running tunnel.
 class Alert {
   const Alert(this.level, this.text, this.detail, this.action, this.label);
 
@@ -117,9 +117,32 @@ class AppState extends ChangeNotifier {
   RouteCfg route(String id) => routes.firstWhere((r) => r.id == id);
   List<RouteCfg> get proxied => routes.where((r) => !r.direct).toList();
 
+  /// system, light or dark.
+  String appearance = 'system';
+
+  /// The theme color; '' keeps the skin's own.
+  String accent = '';
+
+  /// Whether the board's lines bend, as the logo's do.
+  bool twisted = false;
+
+  /// What each route carried in the last 7 and 30 days. Sample data has none.
+  Map<String, int>? weekBytes, monthBytes;
+
+  /// The totals of the chosen range; null for today, which comes with each tick.
+  Map<String, int>? get rangeBytes => switch (range) { 'week' => weekBytes, 'month' => monthBytes, _ => null };
+
+  /// Where the phone itself is on the map, once that has been measured.
+  Place? you = sampleYou;
+
+  static bool _placed(Map where) => ((where['country'] as String?) ?? '').isNotEmpty || ((where['city'] as String?) ?? '').isNotEmpty;
+
   Future<void> load() async {
     final prefs = await Shell.instance.loadPrefs();
     skin = prefs['skin'] ?? skin;
+    appearance = prefs['appearance'] ?? appearance;
+    accent = prefs['accent'] ?? accent;
+    twisted = prefs['borders'] == 'twisted';
     vpnOnDemand = prefs['vpnOnDemand'] == '1';
     vpnExcluded = prefs['vpnExcluded'] ?? '';
     setup = prefs['setupDone'] == '1' ? 0 : 1;
@@ -307,7 +330,7 @@ class AppState extends ChangeNotifier {
 
   void say(String text, {int ms = 1600}) => _toast(text, ms: ms);
 
-  void _syncTabTitles() => Shell.instance.setTabTitles([tr('今日', 'Today'), tr('活动', 'Activity'), 'Provider', tr('设置', 'Settings')]);
+  void _syncTabTitles() => Shell.instance.setTabTitles([tr('代理', 'Proxy'),tr('活动', 'Activity'), 'Provider', tr('设置', 'Settings')]);
 
   /// Switches the interface. Every element rebuilds, because a word on
   /// screen can come from anywhere, and what the core wrote is asked for again.
@@ -407,7 +430,7 @@ class AppState extends ChangeNotifier {
     set(() => vpnExcluded = text);
   }
 
-  /// Takes the user to whatever fixes the issue on 今日.
+  /// Takes the user to whatever fixes the issue on 代理.
   void followAlert() {
     final action = alert?.action;
     if (action == null) return;
@@ -673,6 +696,8 @@ class AppState extends ChangeNotifier {
     final raised = v['issue'] as Map?;
     alert = raised == null ? null : Alert(raised['level'] as String? ?? 'warn', raised['text'] as String? ?? '', raised['detail'] as String?, raised['action'] as String?, raised['label'] as String?);
     userRules = v['userRules'] as int? ?? 0;
+    final at = v['you'] as Map?;
+    you = at == null ? null : Place((at['lat'] as num).toDouble(), (at['lon'] as num).toDouble(), at['city'] as String? ?? '');
     coreText = v['core'] as String? ?? '';
     _applyNodes(v['nodes'] as List? ?? const []);
     _applyProviders(v['providers'] as List? ?? const []);
@@ -710,6 +735,18 @@ class AppState extends ChangeNotifier {
     _refreshLogs();
   }
 
+  /// A page name for a node whose own is taken. A pasted link's node already
+  /// goes by its Provider's name, so naming the Provider again says nothing.
+  String _distinctName(String name, String provider) {
+    final out = name == provider ? name : '$name · $provider';
+    if (!_coreNames.containsKey(out)) return out;
+    var i = 2;
+    while (_coreNames.containsKey('$out $i')) {
+      i++;
+    }
+    return '$out $i';
+  }
+
   void _applyNodes(List list) {
     _coreNames.clear();
     final names = <String, String>{}; // the core's name → the page's
@@ -719,7 +756,7 @@ class AppState extends ChangeNotifier {
       final core = n['name'] as String;
       final providerName = n['providerName'] as String? ?? '';
       var name = n['display'] as String? ?? core;
-      if (_coreNames.containsKey(name)) name = '$name · $providerName';
+      if (_coreNames.containsKey(name)) name = _distinctName(name, providerName);
       _coreNames[name] = core;
       names[core] = name;
       final where = n['where'] as Map? ?? const {};
@@ -734,6 +771,8 @@ class AppState extends ChangeNotifier {
         bars.isEmpty ? -1 : n['delay'] as int? ?? 0,
         [...List.filled(10 - bars.length.clamp(0, 10), 2), ...bars],
         providerId: n['provider'] as String? ?? '',
+        lat: _placed(where) ? (where['lat'] as num?)?.toDouble() : null,
+        lon: _placed(where) ? (where['lon'] as num?)?.toDouble() : null,
       ));
     }
     nodes = out;
@@ -846,6 +885,11 @@ class AppState extends ChangeNotifier {
       ...trafficStack.skip(trafficStack.length >= 46 ? 1 : 0),
       [for (final b in rates) b.toDouble()],
     ];
+    final ranges = t['ranges'] as Map?;
+    if (ranges != null) {
+      weekBytes = (ranges['week'] as Map).cast<String, int>();
+      monthBytes = (ranges['month'] as Map).cast<String, int>();
+    }
     final today = t['today'] as Map?;
     if (today != null) todayShare = {for (final e in today.entries) e.key as String: (e.value as num).toDouble()};
     stats = Stats(
@@ -923,10 +967,33 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// A skin brings its own theme color, as it does on the desktop.
   void setSkin(String id) {
     Shell.instance.setPref('skin', id);
-    set(() => skin = id);
+    Shell.instance.setPref('accent', '');
+    set(() {
+      skin = id;
+      accent = '';
+    });
   }
+
+  void setAppearance(String v) {
+    Shell.instance.setPref('appearance', v);
+    set(() => appearance = v);
+  }
+
+  void setAccent(String v) {
+    Shell.instance.setPref('accent', v);
+    set(() => accent = v);
+  }
+
+  void setTwisted(bool v) {
+    Shell.instance.setPref('borders', v ? 'twisted' : 'straight');
+    set(() => twisted = v);
+  }
+
+  /// Whether to draw in dark, given what the system is set to.
+  bool wantsDark(Brightness system) => appearance == 'system' ? system == Brightness.dark : appearance == 'dark';
 
   void finishSetup({required bool take}) {
     Shell.instance.setPref('setupDone', '1');

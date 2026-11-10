@@ -67,6 +67,34 @@ func TestWinBypass(t *testing.T) {
 	}
 }
 
+// An IPv6 address in ProxyOverride makes InternetSetOption reject the whole
+// call, so none may reach it; everything else is written as before.
+func TestWinBypassIPv6(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		in   []string
+		want string
+	}{
+		{"loopback", []string{"::1"}, "<local>"},
+		{"bracketed", []string{"[::1]"}, "<local>"},
+		{"bracketed with port", []string{"[::1]:8080"}, "<local>"},
+		{"full address", []string{"2001:db8::1"}, "<local>"},
+		{"wildcard", []string{"fe80::*"}, "<local>"},
+		{"surrounded by spaces", []string{" ::1 "}, "<local>"},
+		{"network", []string{"fd00::/8"}, "<local>"},
+		{"host and port kept", []string{"example.com:8080"}, "example.com:8080;<local>"},
+		{"IPv4 and port kept", []string{"10.0.0.1:8080"}, "10.0.0.1:8080;<local>"},
+		{"IPv4 kept", []string{"127.0.0.1"}, "127.0.0.1;<local>"},
+		{"IPv4 wildcard kept", []string{"192.168.*"}, "192.168.*;<local>"},
+		{"name wildcard kept", []string{"*.local"}, "*.local;<local>"},
+		{"the devnet loopback literals", []string{"localhost", "127.0.0.1", "::1"}, "localhost;127.0.0.1;<local>"},
+	} {
+		if got := winBypass(c.in); got != c.want {
+			t.Errorf("%s: winBypass(%q) = %q, want %q", c.name, c.in, got, c.want)
+		}
+	}
+}
+
 func TestWinServiceRoundTrip(t *testing.T) {
 	for _, ws := range []winSettings{
 		{flags: winDirect, server: "", override: "", pac: ""},

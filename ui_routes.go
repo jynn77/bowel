@@ -42,6 +42,8 @@ type routesUI struct {
 
 	armed string // "g:id" or "s:id": 删除 asks to be pressed again
 	delTo string // who inherits a group being deleted
+
+	rs ruleSetDraft // 导入规则集
 }
 
 // ruleConflict is a rule that is already in another service.
@@ -70,6 +72,9 @@ func (u *UI) openRoutes(group, svc string) {
 
 // ruleHome is where in 路由组 the rule a connection matched lives.
 func (u *UI) ruleHome(cn Conn) (group, svc string, ok bool) {
+	if u.snap.Imported != nil {
+		return "", "", false // the rule is the config's: nowhere here to show it
+	}
 	st := u.shownSettings()
 	sv, found := routes.FindMatched(routes.Build(st.Routing, st.Rules), cn.Rule, cn.Payload)
 	return sv.Group, sv.ID, found
@@ -80,6 +85,7 @@ func (u *UI) selectGroup(id string) {
 	r.group, r.svc, r.pol, r.armed, r.nameOf, r.nameErr = id, "", false, "", "", ""
 	u.home.region, u.home.query = "", ""
 	u.clearRuleDraft()
+	u.closeRuleSetImport()
 }
 
 func (u *UI) clearRuleDraft() {
@@ -190,15 +196,21 @@ func (u *UI) stratSeg(c *ui.Context, p *pal, rid string) {
 // autoSeg is what a group's in-place expansion offers: its strategy, and
 // the way to what it carries.
 func (u *UI) autoSeg(c *ui.Context, p *pal, rid string) {
+	if u.snap.Imported != nil {
+		return // a group's strategy is its kind, and the config's
+	}
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 		btn(c.Key("services"), p, i18n.T("服务和规则", "Services and rules")).OnClick(func() { u.openRoutes(rid, "") })
 		u.stratSeg(c, p, rid)
 	})
 }
 
-// chip is one choice of a row of toggles.
-func chip(c *ui.Context, p *pal, key, label string, on bool, onClick func()) {
-	b := ui.ButtonBase(c.Key(key)).Padding(3, 10).Radius(p.r(99)).Shrink(0)
+// chip is one choice of a row of toggles. It keeps the width widest takes
+// chosen, the widest its label gets, so that in a row that wraps, choosing
+// never moves a chip to another line from under the pointer.
+func chip(c *ui.Context, p *pal, key, label, widest string, on bool, onClick func()) {
+	tw, _ := c.MeasureText(0, ui.Span{Text: widest, Size: 12, Weight: 600})
+	b := ui.ButtonBase(c.Key(key)).Padding(3, 10).Radius(p.r(99)).Shrink(0).MinWidth(tw + 20).Justify(ui.Center)
 	switch {
 	case on:
 		b.Background(p.hair2)
@@ -222,24 +234,12 @@ func toggled(list []string, v string) []string {
 
 // scopeRows is 自动最快's range: which nodes the fastest is picked from.
 func (u *UI) scopeRows(c *ui.Context, p *pal, rid string, q routes.Policy) {
-	seen := map[string]bool{}
-	var regions []string
-	for _, n := range u.snap.Nodes {
-		if pl := n.Where.Place; pl != nil && !seen[pl.Country] {
-			seen[pl.Country] = true
-			regions = append(regions, pl.Country)
-		}
-	}
-	slices.Sort(regions)
-	for _, r := range q.Regions { // one chosen that has no node now still shows
-		if !seen[r] {
-			regions = append(regions, r)
-		}
-	}
 	row := func(key, label string, body func()) {
-		ui.Row(c.Key(key)).Gap(10).AlignItems(ui.Center).Children(func() {
+		ui.Row(c.Key(key)).Gap(10).AlignItems(ui.Baseline).Children(func() {
 			ui.Text(c, label).FontSize(11.5).TextColor(p.mute).NoWrap().Width(30).Shrink(0)
-			ui.ScrollHorizontal(c.Key("chips")).Gap(2).AlignItems(ui.Center).Shrink(1).MinWidth(0).Children(body)
+			// Wrapped, not scrolled: a row this short would be half covered
+			// by its scroll bar, which takes presses before the chips do.
+			ui.Row(c.Key("chips")).Wrap().GapX(2).GapY(4).AlignItems(ui.Center).Grow(1).Shrink(1).Basis(0).MinWidth(0).Children(body)
 		})
 	}
 	count := func(match func(NodeView) bool) string {
@@ -253,27 +253,26 @@ func (u *UI) scopeRows(c *ui.Context, p *pal, rid string, q routes.Policy) {
 	}
 	ui.Column(c).Gap(6).Padding(10, 26).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
 		row("regions", i18n.T("地区", "Where"), func() {
-			chip(c, p, "all", i18n.T("全部", "All"), len(q.Regions) == 0, func() { u.changePolicy(rid, func(q *routes.Policy) { q.Regions = nil }) })
-			for _, r := range regions {
-				label := r + count(func(n NodeView) bool {
-					return n.Where.Place != nil && n.Where.Place.Country == r && (len(q.Providers) == 0 || slices.Contains(q.Providers, n.Provider))
-				})
-				chip(c, p, r, label, slices.Contains(q.Regions, r), func() {
-					u.changePolicy(rid, func(q *routes.Policy) { q.Regions = toggled(q.Regions, r) })
-				})
-			}
+			u.regionChips(c, p, rid, q, func(r string) (label, widest string) {
+				in := func(n NodeView) bool { return n.Where.Place != nil && n.Where.Place.Country == r }
+				return r + count(func(n NodeView) bool {
+					return in(n) && (len(q.Providers) == 0 || slices.Contains(q.Providers, n.Provider))
+				}), r + count(in)
+			})
 		})
 		row("providers", i18n.T("来源", "From"), func() {
-			chip(c, p, "all", i18n.T("全部", "All"), len(q.Providers) == 0, func() { u.changePolicy(rid, func(q *routes.Policy) { q.Providers = nil }) })
+			all := i18n.T("全部", "All")
+			chip(c, p, "all", all, all, len(q.Providers) == 0, func() { u.changePolicy(rid, func(q *routes.Policy) { q.Providers = nil }) })
 			for _, pv := range u.snap.Providers {
 				if !pv.Enabled {
 					continue
 				}
 				id := pv.ID
+				in := func(n NodeView) bool { return n.Provider == id }
 				label := pv.Name + count(func(n NodeView) bool {
-					return n.Provider == id && (len(q.Regions) == 0 || n.Where.Place != nil && slices.Contains(q.Regions, n.Where.Place.Country))
+					return in(n) && (len(q.Regions) == 0 || n.Where.Place != nil && slices.Contains(q.Regions, n.Where.Place.Country))
 				})
-				chip(c, p, id, label, slices.Contains(q.Providers, id), func() {
+				chip(c, p, id, label, pv.Name+count(in), slices.Contains(q.Providers, id), func() {
 					u.changePolicy(rid, func(q *routes.Policy) { q.Providers = toggled(q.Providers, id) })
 				})
 			}
@@ -348,6 +347,10 @@ func (u *UI) delayWord(r RouteView) (string, ui.Color, bool) {
 // ---- The page ----
 
 func (u *UI) routesPage(c *ui.Context, p *pal) {
+	if u.snap.Imported != nil {
+		u.importedPage(c, p)
+		return
+	}
 	s := u.shownSettings()
 	all := routes.Build(s.Routing, s.Rules)
 	st := &u.routes
@@ -453,7 +456,7 @@ func (u *UI) testerPath(c *ui.Context, p *pal, s settings.Settings, all []routes
 		ui.Text(c, err.Error()).FontSize(12).TextColor(p.signal).SingleLine()
 		return
 	}
-	id, rule, _, sure := routes.Explain(host, routes.Active(all, s.Rules), all)
+	id, rule, set, _, sure := routes.ExplainSets(host, routes.Active(all, s.Rules), all, u.matchRuleSet())
 	seen := false
 	if !sure {
 		for i := len(u.act.conns) - 1; i >= 0; i-- {
@@ -474,7 +477,11 @@ func (u *UI) testerPath(c *ui.Context, p *pal, s settings.Settings, all []routes
 	var sv routes.Service
 	found := false
 	if !seen {
-		sv, found = routes.FindRule(all, rule)
+		if set != "" {
+			sv, found = routes.FindMatched(all, "RuleSet", routes.RuleSetProvider(set))
+		} else {
+			sv, found = routes.FindRule(all, rule)
+		}
 		if found {
 			sep("/")
 			ui.Text(c, routes.ServiceTitle(sv)).FontSize(12.5).TextColor(p.ink).NoWrap().Shrink(0)
@@ -565,15 +572,20 @@ func (u *UI) routesGroup(c *ui.Context, p *pal, all []routes.Route, r routes.Rou
 		note(i18n.T("其他规则都没命中的流量走这里。在这里加规则，可以把个别网站明确留在默认出口。", "Traffic no other rule matched goes here. A rule here keeps a site on the default exit on purpose."))
 	}
 	u.servicesHead(c, p, all, r)
+	if st.rs.open {
+		u.ruleSetImport(c, p, all, r)
+	}
 	list := slices.Clone(r.Services)
 	mineAt := func(s routes.Service) int {
 		switch {
-		case !s.Mine:
+		case s.Source != "": // up here, so that one just imported is in view
 			return 1
+		case !s.Mine:
+			return 2
 		case len(s.Rules) > 0:
 			return 0
 		}
-		return 2
+		return 3
 	}
 	slices.SortStableFunc(list, func(a, b routes.Service) int { return mineAt(a) - mineAt(b) })
 	ui.Column(c).Children(func() {
@@ -655,6 +667,7 @@ func (u *UI) servicesHead(c *ui.Context, p *pal, all []routes.Route, r routes.Ro
 				u.clearRuleDraft()
 			}
 		}
+		btn(c.Key("import-set"), p, i18n.T("＋ 导入规则集", "＋ Import rule set")).OnClick(u.openRuleSetImport)
 		btn(c.Key("new-svc"), p, i18n.T("＋ 新建服务", "＋ New service")).OnClick(func() {
 			base := i18n.T("新服务", "New service")
 			s := u.shownSettings().Clone()
@@ -671,7 +684,10 @@ func (u *UI) serviceRow(c *ui.Context, p *pal, all []routes.Route, r routes.Rout
 	open := st.svc == s.ID
 	live := s.Live()
 	sub := i18n.T("还没有规则", "No rules yet")
+	subBad := false
 	switch {
+	case s.Source != "":
+		sub, subBad = u.ruleSetRowWord(s)
 	case s.Off:
 		sub = i18n.T("已停用，流量回到默认路由组", "Off: its traffic goes back to Default")
 	case len(live) > 0:
@@ -703,12 +719,18 @@ func (u *UI) serviceRow(c *ui.Context, p *pal, all []routes.Route, r routes.Rout
 		}).Children(func() {
 			ui.Column(c).Gap(2).Grow(1).Basis(0).MinWidth(0).Children(func() {
 				ui.Text(c, routes.ServiceTitle(s)).FontSize(13).FontWeight(600).TextColor(p.ink).SingleLine()
-				ui.Text(c, sub).FontSize(11.5).TextColor(p.mute).SingleLine()
+				subCol := p.mute
+				if subBad {
+					subCol = p.signal
+				}
+				ui.Text(c, sub).FontSize(11.5).TextColor(subCol).SingleLine()
 			})
 			tag := ""
 			switch {
 			case s.Builtin:
 				tag = i18n.T("内置", "Built-in")
+			case s.Source != "":
+				tag = i18n.T("规则集", "Rule set")
 			case !s.Mine:
 				tag = i18n.T("自定义", "Custom")
 			}
@@ -733,18 +755,22 @@ func (u *UI) serviceEditor(c *ui.Context, p *pal, all []routes.Route, r routes.R
 		if !s.Builtin && !s.Mine {
 			u.serviceName(c, p, all, s)
 		}
-		if s.Mine {
-			ui.Text(c, i18n.T("在「日志」里点「让它走…」加的规则放在这里。", "Rules made with Send via… in Log land here.")).FontSize(12).TextColor(p.mute)
-		}
-		if len(s.Rules) == 0 {
-			ui.Text(c, i18n.T("还没有规则，在下面加一条。", "No rules yet. Add one below.")).FontSize(12).TextColor(p.faint).Padding(6, 0)
-		}
-		ui.Column(c).Children(func() {
-			for _, l := range s.Rules {
-				u.ruleLine(c, p, s, l)
+		if s.Source != "" {
+			u.ruleSetBody(c, p, s)
+		} else {
+			if s.Mine {
+				ui.Text(c, i18n.T("在「日志」里点「让它走…」加的规则放在这里。", "Rules made with Send via… in Log land here.")).FontSize(12).TextColor(p.mute)
 			}
-		})
-		u.ruleInput(c, p, all, s)
+			if len(s.Rules) == 0 {
+				ui.Text(c, i18n.T("还没有规则，在下面加一条。", "No rules yet. Add one below.")).FontSize(12).TextColor(p.faint).Padding(6, 0)
+			}
+			ui.Column(c).Children(func() {
+				for _, l := range s.Rules {
+					u.ruleLine(c, p, s, l)
+				}
+			})
+			u.ruleInput(c, p, all, s)
+		}
 		if s.Mine {
 			return
 		}
@@ -787,7 +813,7 @@ func (u *UI) serviceEditor(c *ui.Context, p *pal, all []routes.Route, r routes.R
 					u.changeRouting(func(st *settings.Settings) { st.Rules = st.Routing.RemoveService(st.Rules, s.ID) }, nil)
 				})
 			}
-			if s.Builtin {
+			if s.Builtin || s.Source != "" {
 				label := i18n.T("停用", "Turn off")
 				if s.Off {
 					label = i18n.T("启用", "Turn on")
@@ -795,6 +821,8 @@ func (u *UI) serviceEditor(c *ui.Context, p *pal, all []routes.Route, r routes.R
 				btn(c.Key("off"), p, label).OnClick(func() {
 					u.changeRouting(func(st *settings.Settings) { st.Routing.ToggleService(s.ID) }, nil)
 				})
+			}
+			if s.Builtin {
 				return
 			}
 			armed := st.armed == "s:"+s.ID
@@ -808,7 +836,11 @@ func (u *UI) serviceEditor(c *ui.Context, p *pal, all []routes.Route, r routes.R
 					return
 				}
 				st.armed, st.svc = "", ""
-				u.changeRouting(func(st *settings.Settings) { st.Rules = st.Routing.RemoveService(st.Rules, s.ID) }, nil)
+				var after func()
+				if s.Source != "" {
+					after = func() { u.app.ruleSets.Delete(s.ID) } // once the core no longer reads it
+				}
+				u.changeRouting(func(st *settings.Settings) { st.Rules = st.Routing.RemoveService(st.Rules, s.ID) }, after)
 			})
 		})
 	})

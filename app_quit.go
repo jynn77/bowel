@@ -117,6 +117,7 @@ func (a *App) shutdown() {
 			{"gateway", a.quitGateway},
 			{"system proxy", a.quitSystemProxy},
 			{"core", a.quitCore},
+			{"update", a.quitUpdate},
 		})
 	})
 }

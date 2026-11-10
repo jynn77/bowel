@@ -158,7 +158,11 @@ func (a *App) trayMenu(s Snapshot) *mygo.Menu {
 				label = fmt.Sprintf(i18n.T("节点", "Node")+"\t%s%s", flagOf(n), n.Display)
 			}
 		}
-		items = append(items, &mygo.MenuItem{Label: label, Submenu: a.routeMenu(r, s.Nodes),
+		sub := a.routeMenu(r, s.Nodes)
+		if r.Group != "" {
+			sub = groupMenu(a, r, s.Imported)
+		}
+		items = append(items, &mygo.MenuItem{Label: label, Submenu: sub,
 			Disabled: len(s.Nodes) == 0 || !s.Takeover.On || s.Mode == "direct"})
 	}
 	items = append(items, mygo.Separator())
@@ -207,6 +211,27 @@ func (a *App) routeMenu(r RouteView, all []NodeView) []*mygo.MenuItem {
 	}
 	if len(all) > 15 {
 		items = append(items, mygo.Separator(), &mygo.MenuItem{Label: fmt.Sprintf(i18n.T("全部 %d 个节点…", "All %d nodes…"), len(all)), Click: func(*mygo.MenuItem, *mygo.Window) { a.showWindow() }})
+	}
+	return items
+}
+
+// groupMenu is the members of the imported group a route is. Only the kind
+// the user chooses in can be changed from here.
+func groupMenu(a *App, r RouteView, im *ImportedView) []*mygo.MenuItem {
+	var items []*mygo.MenuItem
+	for _, g := range im.Groups {
+		if g.Name != r.Group {
+			continue
+		}
+		if !g.Selectable {
+			items = append(items, &mygo.MenuItem{Label: groupKindWord(g.Kind) + i18n.T(" · 由内核自己选择", " · the core chooses by itself"), Disabled: true})
+		}
+		for _, m := range g.Members {
+			group, member := g.Name, m.Name
+			item := &mygo.MenuItem{Label: display(member), Type: mygo.MenuItemRadio, Checked: g.Now == member, Disabled: !g.Selectable}
+			item.Click = func(*mygo.MenuItem, *mygo.Window) { go func() { a.logErr(a.selectMember(group, member)) }() }
+			items = append(items, item)
+		}
 	}
 	return items
 }

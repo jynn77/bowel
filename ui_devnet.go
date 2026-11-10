@@ -61,6 +61,7 @@ func (u *UI) devnetSection(c *ui.Context, p *pal, s settings.Settings) {
 	})
 	if d.Exports != "" {
 		u.mcpSnippet(c, p, "devexports", i18n.T("终端代理", "Terminal proxy"), i18n.T("命令行工具不看系统代理。贴到终端里，内网地址会自动跳过代理", "Command-line tools ignore the system proxy. Paste this into a terminal; internal addresses skip the proxy"), d.Exports)
+		u.mcpSnippet(c, p, "devunsets", i18n.T("关闭终端代理", "Turn off the terminal proxy"), i18n.T("贴到同一个终端窗口里，恢复不走代理；关掉窗口也一样", "Paste it into the same terminal window to stop using the proxy. Closing the window does the same"), d.Unsets)
 	}
 }
 

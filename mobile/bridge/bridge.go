@@ -57,22 +57,25 @@ type bridge struct {
 
 	setMu sync.Mutex // one change of the config at a time
 
-	mu        sync.Mutex
-	routesNow []routes.Route
-	routesAt  uint64
-	vpn       string // off, connecting, on, disconnecting, error
-	vpnErr    string
-	version   string // the core's, once it has said
-	wantConns bool
-	client    *mihomo.Client
-	cancel    context.CancelFunc
-	proxies   map[string]mihomo.Proxy
-	provNodes map[string][]string
-	lastNode  map[string]string    // route id → the node it was last on
-	probedAt  map[string]time.Time // when each node was last probed
-	switched  *switchNote
-	sites     map[string]siteResult
-	updating  bool // the automatic Provider update is running
+	mu         sync.Mutex
+	routesNow  []routes.Route
+	routesAt   uint64
+	vpn        string // off, connecting, on, disconnecting, error
+	vpnErr     string
+	version    string // the core's, once it has said
+	wantConns  bool
+	client     *mihomo.Client
+	cancel     context.CancelFunc
+	proxies    map[string]mihomo.Proxy
+	provNodes  map[string][]string
+	lastNode   map[string]string    // route id → the node it was last on
+	probedAt   map[string]time.Time // when each node was last probed
+	youProbed  time.Time            // when the phone's own place was last asked for
+	traffic    *routeTraffic        // per-route bytes by day
+	rangesSent time.Time            // when the 7 and 30 day totals last went out
+	switched   *switchNote
+	sites      map[string]siteResult
+	updating   bool // the automatic Provider update is running
 
 	shareDay   string           // the day routeBytes counts
 	routeBytes map[string]int64 // today's bytes per route id
@@ -251,7 +254,7 @@ func (x *bridge) refresh(ctx context.Context) error {
 }
 
 // noticeSwitchesLocked records a route's automatic group moving off a failed
-// node, which the 今日 page says for a while.
+// node, which the 代理 page says for a while.
 func (x *bridge) noticeSwitchesLocked(all []routes.Route) {
 	for _, r := range all {
 		if r.Direct {
@@ -288,6 +291,7 @@ func (x *bridge) loop() {
 		}
 		if n%60 == 1 {
 			go x.autoUpdate()
+			go x.locateYou()
 		}
 	}
 }
@@ -304,6 +308,7 @@ func (x *bridge) tick() {
 		tk.ByRoute[r.ID] = s.ByGroup[routes.Group(r)]
 	}
 	tk.Today = x.todayShare(s.GroupBytes)
+	tk.Ranges = x.trafficRanges(began)
 	var conns []connData
 	if want {
 		conns = x.realConns()

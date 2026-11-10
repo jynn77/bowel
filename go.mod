@@ -13,6 +13,7 @@ require (
 )
 
 require (
+	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/go-text/typesetting v0.3.5 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
