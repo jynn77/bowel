@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/oboo/moho/internal/i18n"
 )
@@ -21,6 +22,19 @@ import (
 // loginTask is the scheduled task's name. One name: the task is this app's,
 // and it is remade on every switch.
 const loginTask = "bowel"
+
+// createNoWindow is CREATE_NO_WINDOW. schtasks is a console program, and
+// this app is a GUI one: without it, every switch of the login item would
+// flash a console window.
+const createNoWindow = 0x08000000
+
+// schtasks is the command that creates or deletes the task, run with no
+// console of its own.
+func schtasks(args ...string) *exec.Cmd {
+	c := exec.Command("schtasks", args...)
+	c.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
+	return c
+}
 
 // buildTaskAction is the task's action: the executable, quoted — its path
 // may have spaces in it — with the argument the framework reads to keep the
@@ -49,7 +63,7 @@ func setOpenAtLoginOS(on bool) error {
 	if exe, err = filepath.EvalSymlinks(exe); err != nil {
 		return err
 	}
-	out, err := exec.Command("schtasks", schtasksArgs(on, exe)...).CombinedOutput()
+	out, err := schtasks(schtasksArgs(on, exe)...).CombinedOutput()
 	if err != nil {
 		if !on && strings.Contains(strings.ToLower(string(out)), "does not exist") {
 			return nil
@@ -61,5 +75,5 @@ func setOpenAtLoginOS(on bool) error {
 
 // openAtLoginOS says whether the task is there.
 func openAtLoginOS() bool {
-	return exec.Command("schtasks", "/Query", "/TN", loginTask).Run() == nil
+	return schtasks("/Query", "/TN", loginTask).Run() == nil
 }

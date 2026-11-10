@@ -160,6 +160,7 @@ func git() string {
 func (o Options) cmd(ctx context.Context, name string, args ...string) *exec.Cmd {
 	c := exec.CommandContext(ctx, name, args...)
 	c.Env = append(os.Environ(), "HOME="+o.Home, "PATH="+strings.Join(binDirs, ":")+":"+os.Getenv("PATH"))
+	hideWindow(c)
 	return c
 }
 

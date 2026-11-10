@@ -1,3 +1,7 @@
+//go:build !windows
+
+// The fake core below is a #!/bin/sh script: only a unix can run it.
+
 package tun
 
 import (
