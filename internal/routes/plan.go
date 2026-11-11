@@ -32,6 +32,11 @@ type Policy struct {
 	Providers []string `json:"providers,omitempty"` // ModeAuto: provider ids; none is all
 	Order     []string `json:"order,omitempty"`     // ModeOrder: node names, first preferred
 	Fixed     string   `json:"fixed,omitempty"`     // ModeFixed: a node name
+	// Direct sends the group's traffic out without a node; on the default
+	// route that is what no rule matched. The strategy stays, for when
+	// this is turned off, and the default route's for global mode too.
+	// 直连 and 拦截 never use a node and have no such choice (ChoosesExit).
+	Direct bool `json:"direct,omitempty"`
 }
 
 // Scoped says whether the automatic group picks from less than every node.
@@ -98,6 +103,13 @@ func (p *Plan) ensure() {
 var fixedGroups = []string{Default, "direct", Reject}
 
 func fixedGroup(id string) bool { return slices.Contains(fixedGroups, id) }
+
+// Fixed says whether group id always exists, keeps its name and its place.
+func Fixed(id string) bool { return fixedGroup(id) }
+
+// ChoosesExit says whether group id chooses between a node and going
+// direct: all but the two that never use one.
+func ChoosesExit(id string) bool { return id != "direct" && id != Reject }
 
 // withFixed is confs with the fixed groups it lacks, even if the file says
 // otherwise or was saved before there was one, at the end.
@@ -179,6 +191,9 @@ func Build(p Plan, users []UserRule) []Route {
 		r.Label, r.Policy = g.Name, g.Policy.clone()
 		if r.Policy.Mode == "" {
 			r.Policy.Mode = ModeAuto
+		}
+		if g.Policy.Direct && ChoosesExit(g.ID) {
+			r.Direct = true
 		}
 		out = append(out, r)
 	}
@@ -317,12 +332,31 @@ func rank(text string) (class, length int) {
 	return 5, 0
 }
 
+// Listed are the routes in the order the interface lists them, which is
+// the order their rules apply in: the default route, which takes what the
+// others miss, comes last.
+func Listed(all []Route) []Route {
+	out := make([]Route, 0, len(all))
+	var last []Route
+	for _, r := range all {
+		if r.ID == Default {
+			last = append(last, r)
+		} else {
+			out = append(out, r)
+		}
+	}
+	return append(out, last...)
+}
+
 // Lines are all rules in the order the core tries them. Of two equally
-// specific rules the user's goes first, then the routes' in their order.
+// specific rules the user's goes first, then the routes' as they are
+// listed (Listed).
 //
 // A rule set's lines can't be sorted in by how specific they are, so with
-// one in use the order is the user's rules, the sets, what ships. Without
-// one nothing changes for anybody.
+// one in use the order is the user's rules, the sets, what ships; the sets
+// go as listed, by their route and then their place in it, which the user
+// arranges (MoveGroup, MoveRuleSet). Without a set nothing changes for
+// anybody.
 func Lines(all []Route, users []UserRule) []Line {
 	var mine, sets, shipped []Line
 	for _, u := range users {
@@ -330,7 +364,7 @@ func Lines(all []Route, users []UserRule) []Line {
 			mine = append(mine, Line{Text: u.Mihomo(), Route: u.Route, Mine: true})
 		}
 	}
-	for _, r := range all {
+	for _, r := range Listed(all) {
 		for _, t := range r.Rules {
 			shipped = append(shipped, Line{Text: t, Route: r.ID})
 		}
@@ -480,6 +514,38 @@ func (p *Plan) insertGroup(name string, q Policy) string {
 	}
 	p.Groups = slices.Insert(p.Groups, at, GroupConf{ID: id, Name: name, Policy: q})
 	return id
+}
+
+// MoveGroup gives group id the place of group to, among the groups that
+// can move: every one but the fixed, which stay after them. The others
+// between the two shift by one, as rows do when one is dragged onto
+// another. It reports whether anything moved.
+func (p *Plan) MoveGroup(id, to string) bool {
+	if id == to || fixedGroup(id) || fixedGroup(to) || p.group(id) == nil || p.group(to) == nil {
+		return false
+	}
+	from := slices.IndexFunc(p.Groups, func(g GroupConf) bool { return g.ID == id })
+	at := slices.IndexFunc(p.Groups, func(g GroupConf) bool { return g.ID == to })
+	g := p.Groups[from]
+	p.Groups = slices.Insert(slices.Delete(slices.Clone(p.Groups), from, from+1), at, g)
+	return true
+}
+
+// MoveRuleSet gives rule set id the place of rule set to, which is in the
+// same group; a set changes groups as any service does (MoveService). The
+// sets between the two shift by one. It reports whether anything moved.
+func (p *Plan) MoveRuleSet(id, to string) bool {
+	from := slices.IndexFunc(p.Services, func(s ServiceConf) bool { return s.ID == id })
+	at := slices.IndexFunc(p.Services, func(s ServiceConf) bool { return s.ID == to })
+	if id == to || from < 0 || at < 0 {
+		return false
+	}
+	a, b := p.Services[from], p.Services[at]
+	if a.Source == "" || b.Source == "" || a.Group != b.Group {
+		return false
+	}
+	p.Services = slices.Insert(slices.Delete(slices.Clone(p.Services), from, from+1), at, a)
+	return true
 }
 
 // AddGroup makes a route group: the fastest of all nodes. It returns its id.
@@ -675,14 +741,17 @@ func (p Plan) Check() error {
 		if strings.TrimSpace(t) == "" {
 			return errors.New(i18n.T("名字不能为空", "The name can't be empty"))
 		}
+		if m := r.Policy.Mode; !slices.Contains(Modes, m) {
+			return fmt.Errorf(i18n.T("未知的节点策略: %s", "Unknown node strategy: %s"), m)
+		}
+		if r.ID == Default {
+			continue // named 其他流量 after people had named groups, so it can share a name
+		}
 		// 拦截 arrived after people had named groups, so it can share a name.
 		if seen[t] && r.ID != Reject {
 			return fmt.Errorf(i18n.T("已经有同名的路由组: %s", "There's already a route group called %s"), t)
 		}
 		seen[t] = true
-		if m := r.Policy.Mode; !slices.Contains(Modes, m) {
-			return fmt.Errorf(i18n.T("未知的节点策略: %s", "Unknown node strategy: %s"), m)
-		}
 	}
 	return nil
 }

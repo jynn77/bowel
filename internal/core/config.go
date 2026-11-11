@@ -68,6 +68,9 @@ type Input struct {
 	// Dev keeps the machine's own networks off the proxy; see devnet.
 	Dev devnet.Overlay
 
+	// IPv6Usable is what Options.IPv6 Auto found of the current network.
+	IPv6Usable bool
+
 	// Imported, when set, is the routing to use instead of Routes: a
 	// provider's own nodes, groups and rules. UserRules and RuleSets, which
 	// name route groups it doesn't have, are left out with the rest.
@@ -114,6 +117,9 @@ func withTarget(rule, target string) string {
 func BuildConfig(in Input) ([]byte, error) {
 	o := in.Options.Clone()
 	o.Fill()
+	// False also takes IPv6 off the TUN: the core then gives it no address,
+	// and without one it doesn't route 2000::/3 or the rest of ::/0.
+	ipv6 := o.IPv6.Enabled(in.IPv6Usable)
 	dev := in.Dev
 	// The core ignores rules outside rule mode, and with them the way to
 	// this machine's own networks; see rulesFor.
@@ -126,7 +132,7 @@ func BuildConfig(in Input) ([]byte, error) {
 		"allow-lan":           in.AllowLan,
 		"mode":                mode,
 		"log-level":           in.LogLevel,
-		"ipv6":                o.IPv6,
+		"ipv6":                ipv6,
 		"unified-delay":       o.UnifiedDelay,
 		"tcp-concurrent":      o.TCPConcurrent,
 		"find-process-mode":   o.FindProcess,
@@ -169,6 +175,20 @@ func BuildConfig(in Input) ([]byte, error) {
 		cfg["secret"] = o.ExtSecret
 	}
 	hosts := map[string]any{}
+	// The DNS servers in use that Moho knows the addresses of; the lines
+	// below, the user's among them, replace these.
+	servers := slices.Concat(o.Nameservers, o.Fallback, o.ProxyNameservers)
+	if len(o.Nameservers) == 0 {
+		servers = append(servers, DefaultNameservers...)
+	}
+	for _, list := range dnsPolicy(o.NameserverPolicy, dev.Policy) {
+		servers = append(servers, list...)
+	}
+	for _, s := range servers {
+		if host := nameserverHost(s); len(NameserverHosts[host]) > 0 {
+			hosts[host] = NameserverHosts[host]
+		}
+	}
 	for k, v := range dev.Hosts {
 		hosts[k] = v
 	}
@@ -269,9 +289,18 @@ func BuildConfig(in Input) ([]byte, error) {
 	groups = append(groups, withNodes(map[string]any{"name": ProbeGroup, "type": "select"}, "DIRECT"))
 	cfg["proxy-groups"] = groups
 	cfg["rules"] = rules
-	cfg["listeners"] = []any{map[string]any{
+	listeners := []any{map[string]any{
 		"name": "moho-probe", "type": "mixed", "listen": "127.0.0.1", "port": in.ProbePort, "proxy": ProbeGroup,
 	}}
+	// A provider's own routing has none of the route groups these name.
+	for _, e := range o.ExtraPorts {
+		if exit, ok := exitOf(in.Routes, e.Route); ok && in.Imported == nil {
+			listeners = append(listeners, map[string]any{
+				"name": ExtraPortListener(e.Port), "type": "mixed", "listen": "127.0.0.1", "port": e.Port, "proxy": exit,
+			})
+		}
+	}
+	cfg["listeners"] = listeners
 
 	if in.Tun {
 		tun := map[string]any{
@@ -295,7 +324,7 @@ func BuildConfig(in Input) ([]byte, error) {
 	switch {
 	case in.Tun || o.DNS:
 		dns := map[string]any{
-			"enable": true, "ipv6": o.IPv6, "enhanced-mode": o.DNSMode,
+			"enable": true, "ipv6": ipv6, "enhanced-mode": o.DNSMode,
 			"default-nameserver": o.DefaultNameservers,
 			"nameserver":         o.Nameservers,
 			"use-hosts":          o.UseHosts,
@@ -333,7 +362,7 @@ func BuildConfig(in Input) ([]byte, error) {
 		// directly, which knows nothing of split DNS: this resolver is the
 		// system's too, but for the domains that have servers of their own.
 		cfg["dns"] = map[string]any{
-			"enable": true, "ipv6": o.IPv6, "enhanced-mode": "normal", "nameserver": []string{"system"},
+			"enable": true, "ipv6": ipv6, "enhanced-mode": "normal", "nameserver": []string{"system"},
 			"use-hosts": o.UseHosts, "use-system-hosts": o.UseSystemHosts, "nameserver-policy": policy,
 		}
 	default:
@@ -350,7 +379,7 @@ func BuildConfig(in Input) ([]byte, error) {
 			ns = DefaultNameservers
 		}
 		dns := map[string]any{
-			"enable": true, "ipv6": o.IPv6, "enhanced-mode": "normal", "nameserver": ns,
+			"enable": true, "ipv6": ipv6, "enhanced-mode": "normal", "nameserver": ns,
 			"use-hosts": o.UseHosts, "use-system-hosts": o.UseSystemHosts,
 		}
 		if len(policy) > 0 {
@@ -365,7 +394,10 @@ func BuildConfig(in Input) ([]byte, error) {
 func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any, use []string, withNodes func(map[string]any, ...string) map[string]any) ([]any, []string, error) {
 	var groups []any
 	for _, r := range in.Routes {
-		if r.Direct {
+		if r.OwnExit() {
+			groups = append(groups, map[string]any{"name": routes.Group(r), "type": "select", "proxies": []string{"DIRECT"}})
+		}
+		if !r.NodeGroups() {
 			continue
 		}
 		mainURL := in.MainURLs[r.ID]
@@ -411,22 +443,14 @@ func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any
 		if _, ok := sets[routes.RuleSetProvider(l.Set)]; l.Set != "" && !ok {
 			continue
 		}
-		for _, r := range in.Routes {
-			if r.ID != l.Route {
-				continue
-			}
-			target := routes.Group(r)
-			switch {
-			case r.Reject:
-				target = "REJECT"
-			case r.Direct:
-				target = "DIRECT"
-			}
-			if l.Mine && dev.Covers(l.Text) {
-				mine = append(mine, withTarget(l.Text, target))
-			} else {
-				rest = append(rest, withTarget(l.Text, target))
-			}
+		target, ok := exitOf(in.Routes, l.Route)
+		if !ok {
+			continue
+		}
+		if l.Mine && dev.Covers(l.Text) {
+			mine = append(mine, withTarget(l.Text, target))
+		} else {
+			rest = append(rest, withTarget(l.Text, target))
 		}
 	}
 	var def routes.Route
@@ -438,8 +462,35 @@ func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any
 	if def.Name == "" {
 		return nil, nil, errors.New(i18n.T("模板里没有默认路由", "The template has no default route"))
 	}
-	return groups, rulesFor(in.Mode, dev, mine, rest, routes.Group(def)), nil
+	match := routes.Group(def)
+	if def.Direct {
+		match = "DIRECT"
+	}
+	return groups, rulesFor(in.Mode, dev, mine, rest, match), nil
 }
+
+// exitOf is what the core sends route id's traffic to: the route's group,
+// or DIRECT or REJECT for a route that has none. False if there is no such
+// route.
+func exitOf(all []routes.Route, id string) (string, bool) {
+	for _, r := range all {
+		if r.ID != id {
+			continue
+		}
+		switch {
+		case r.Reject:
+			return "REJECT", true
+		case r.OwnExit(): // DIRECT, by its own group
+		case r.Direct:
+			return "DIRECT", true
+		}
+		return routes.Group(r), true
+	}
+	return "", false
+}
+
+// ExtraPortListener is the name of the listener of an extra port.
+func ExtraPortListener(port int) string { return fmt.Sprintf("bowel-port-%d", port) }
 
 // rulesFor is the rule list. Outside rule mode the core would ignore the
 // list and send everything one way, so the mode becomes the list's last

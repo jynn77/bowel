@@ -587,7 +587,7 @@ class _GroupPageState extends State<GroupPage> {
   }
 
   String _serviceSub(Map s) {
-    if (s['off'] == true) return tr('已停用，流量回到默认路由组', 'Off: its traffic goes back to Default');
+    if (s['off'] == true) return tr('已停用，这些流量回到「其他流量」', 'Off: its traffic goes back to Other');
     final live = _live(s);
     if (live.isEmpty) return tr('还没有规则', 'No rules yet');
     final first = live.take(2).map((r) => r['shown'] as String? ?? '').join(tr('、', ', '));
@@ -726,7 +726,7 @@ class _GroupPageState extends State<GroupPage> {
               _note(l, tr('这里的流量直接连接，不经过节点，所以没有节点策略。', "Traffic here connects directly, with no node, so there's no node strategy."))
             else
               _strategy(l, g, _cfgOf(app, id)),
-            if (id == 'default') _note(l, tr('其他规则都没命中的流量走这里。在这里加规则，可以把个别网站明确留在默认出口。', 'Traffic no other rule matched goes here. A rule here keeps a site on the default exit on purpose.')),
+            if (id == 'default') _note(l, tr('没命中任何规则的流量走这里。想让某个网站固定走这里，可以在这里加一条规则。', 'Traffic no rule matched goes here. To keep a site here on purpose, add a rule here.')),
             section(l, tr('服务 · {0}', 'Services · {0}', [named]), [for (final s in _sorted(g)) _service(l, g, s)]),
             if (!direct) _sites(l, g),
           ],

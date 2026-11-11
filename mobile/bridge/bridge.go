@@ -631,6 +631,9 @@ func (x *bridge) writeConfig() error {
 	scopes, orders := x.nodeLists(all)
 	opts := s.Options.Clone()
 	opts.FindProcess, opts.Interface = "off", ""
+	if opts.IPv6 == core.IPv6Auto {
+		opts.IPv6 = core.IPv6On // nothing here reads the network: as it always was
+	}
 	raw, err := core.BuildConfig(core.Input{
 		Providers: refs, Routes: all, UserRules: routes.Active(all, s.Rules), Scopes: scopes, Orders: orders,
 		Mode: s.Mode, Tun: true, LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: probePort, Options: opts,
@@ -843,7 +846,7 @@ func (x *bridge) logs() []logData {
 func ruleText(kind, payload string) string {
 	switch kind {
 	case "", "Match":
-		return i18n.T("未命中，走默认", "No rule matched, default route")
+		return i18n.T("未命中，归其他流量", "No rule matched, Other")
 	case "DomainSuffix":
 		return i18n.T("域名后缀 ", "Domain suffix ") + payload
 	case "Domain":

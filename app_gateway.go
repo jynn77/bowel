@@ -26,7 +26,8 @@ var osTun = struct {
 	step      func(src, dst string) (tun.Step, error)
 	admin     func(prompt string, steps ...tun.Step) error
 	install   func(src, dst string) error
-}{tun.Installed, tun.InstallStep, tun.Admin, tun.Install}
+	needsRule func(dst string) bool // Linux: the polkit rule for the core's resolvectl is missing or another device's
+}{tun.Installed, tun.InstallStep, tun.Admin, tun.Install, tun.NeedsRule}
 
 // gwProbe is what the last look at the gateway found.
 type gwProbe struct {
@@ -46,7 +47,7 @@ func gatewayPrompt() string {
 // gatewayOn is whether the gateway should be in effect: wanted, and TUN
 // in effect (takeover on, TUN wanted and installed).
 func (a *App) gatewayOn(s settings.Settings) bool {
-	return s.Gateway && a.takeoverOn(s) && s.Tun && osTun.installed(a.tunBin)
+	return s.Gateway && a.takeoverOn(s) && s.Tun && osTun.installed(a.tunBin) && a.tunFault.Load() == nil
 }
 
 // setGateway turns gateway mode on or off. On needs TUN, so it turns TUN

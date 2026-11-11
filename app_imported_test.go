@@ -315,3 +315,104 @@ func mustProvider(t *testing.T, a *App, id string) provider.Provider {
 	}
 	return p
 }
+
+// issue75Config has a group that takes its nodes from a local file, as the
+// machine that wrote the config knew it.
+const issue75Config = `proxy-providers:
+  nodes: {type: file, path: /etc/passwd, health-check: {enable: false}}
+proxy-groups:
+  - {name: G, type: select, use: [nodes]}
+rules:
+  - MATCH,G
+`
+
+// TestImportedLocalFileProvider is issue #75: a config's `type: file`
+// provider is the local file Provider of the same name, whose copy bowel
+// keeps; the path in the config is never read.
+func TestImportedLocalFileProvider(t *testing.T) {
+	a, _ := routingApp(t, nil)
+	ctx := context.Background()
+	v, err := a.addProvider(ctx, "proxies:\n"+issue75Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Routing.NeedsFile != "nodes" || v.Routing.Groups != 0 || !strings.Contains(v.Routing.Problem, "nodes") {
+		t.Fatalf("routing = %+v", v.Routing)
+	}
+	if err := a.setImportedRouting(v.ID); err == nil {
+		t.Fatal("used without its file")
+	}
+
+	file := t.TempDir() + "/whatever.yaml"
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("proxies:\n  - {name: N1, type: direct}\n")
+	if err := a.addFileAs(file, "nodes"); err != nil {
+		t.Fatal(err)
+	}
+	var local provider.Provider
+	for _, p := range a.providers.List() {
+		if p.Name == "nodes" {
+			local = p
+		}
+	}
+	if local.Kind != provider.File || local.Source != file {
+		t.Fatalf("the file's provider = %+v", local)
+	}
+	if r := a.providerView(mustProvider(t, a, v.ID)).Routing; r.Groups != 1 || r.Problem != "" || r.NeedsFile != "" {
+		t.Fatalf("with its file: %+v", r)
+	}
+	if err := a.setImportedRouting(v.ID); err != nil {
+		t.Fatal(err)
+	}
+	s := a.settings.Get()
+	cfg, err := a.buildConfig(s, overlayOf(s, a.devEnv()), a.importedNow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(cfg), "/etc/passwd") || strings.Count(string(cfg), a.providers.Path(local.ID)) != 2 {
+		t.Errorf("the config reads the wrong file:\n%s", cfg)
+	}
+	if got := coreProxies(t, a)["G"].All; !slices.Equal(got, []string{"N1"}) {
+		t.Errorf("G = %v", got)
+	}
+
+	// 重新读取 brings what the file holds now.
+	write("proxies:\n  - {name: N1, type: direct}\n  - {name: N2, type: direct}\n")
+	if err := a.reloadFile(local.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := coreProxies(t, a)["G"].All; !slices.Equal(got, []string{"N1", "N2"}) {
+		t.Errorf("G after the reload = %v", got)
+	}
+
+	// An update that needs a file there is none for is not applied.
+	more := strings.Replace(issue75Config, "use: [nodes]", "use: [nodes, more]", 1)
+	more = "proxies:\n" + strings.Replace(more, "proxy-groups:", "  more: {type: file, path: ./more.yaml}\nproxy-groups:", 1)
+	if err := a.vetUpdate(v.ID, []byte(more)); err == nil || !strings.Contains(err.Error(), "more") {
+		t.Errorf("vetUpdate = %v", err)
+	}
+
+	// Under another name the file is no longer the config's: bowel's own
+	// routing takes over, with the reason, until the name is back.
+	if err := a.renameProvider(local.ID, "elsewhere"); err != nil {
+		t.Fatal(err)
+	}
+	if a.importedNow() != nil || !hasRoute(a, "AI 服务") {
+		t.Error("the config is still in use without its file")
+	}
+	a.refresh()
+	if is := a.importedIssue(a.settings.Get(), a.snapshot()); is == nil || !strings.Contains(is.Detail, "nodes") {
+		t.Errorf("issue = %+v", is)
+	}
+	if err := a.renameProvider(local.ID, "nodes"); err != nil {
+		t.Fatal(err)
+	}
+	if a.importedNow() == nil || !hasRoute(a, "G") {
+		t.Error("the config did not come back with its file")
+	}
+}

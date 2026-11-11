@@ -124,6 +124,17 @@ func TestWinServiceForget(t *testing.T) {
 	}
 }
 
+func TestWinServiceTurnOffDead(t *testing.T) {
+	// The address and bypass list stay; only the switch goes off.
+	saved := Saved{Services: []Service{winService(winSettings{flags: winDirect | winProxy, server: "127.0.0.1:7890", override: "localhost;<local>"})}}
+	saved.TurnOffDead(func(string, int) bool { return false })
+	got := saved.Services[0].winSettings()
+	want := winSettings{flags: winDirect, server: "127.0.0.1:7890", override: "localhost;<local>"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
 func TestWinStatus(t *testing.T) {
 	ours := winSettings{flags: winDirect | winProxy, server: "127.0.0.1:7899"}
 	if s := winStatus(ours, 7899); !s.On || !s.Ours || s.Host != "127.0.0.1" || s.Port != 7899 {

@@ -29,12 +29,20 @@ var devDetect = (&devnet.Detector{}).Detect
 // devEvery is how soon a network that came or went is noticed.
 const devEvery = 20 * time.Second
 
+// ipv6Watch finds out whether the network has IPv6. Tests replace it.
+var ipv6Watch interface {
+	Check(primary, forced string) devnet.IPv6State
+	Reset()
+} = &devnet.IPv6Watcher{}
+
 type devState struct {
 	mu  sync.Mutex
 	env devnet.Env
 	// tried is the overlay last given to the core, by its fingerprint, so
 	// that one it refused is not offered again every few seconds.
 	tried string
+	// triedIPv6 is what automatic IPv6 had found for the config last given.
+	triedIPv6 bool
 	// fellBack: the core refused what was detected, and has the catalog.
 	fellBack bool
 	// bypass is the list the system proxy was last given.
@@ -52,10 +60,33 @@ func (a *App) detectDev(limit time.Duration) devnet.Env {
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	env := devDetect(ctx)
+	env.IPv6 = readIPv6(a.settings.Get(), env.PrimaryIface)
 	a.dev.mu.Lock()
 	a.dev.env = env
 	a.dev.mu.Unlock()
 	return env
+}
+
+// readIPv6 asks about the network only for Auto, the one mode that needs it.
+func readIPv6(s settings.Settings, primary string) devnet.IPv6State {
+	if s.IPv6 != core.IPv6Auto {
+		ipv6Watch.Reset()
+		return devnet.IPv6State{}
+	}
+	return ipv6Watch.Check(primary, s.Interface)
+}
+
+// ensureIPv6 makes sure Auto is known before a config depends on it, as
+// when the setting has just been changed to it.
+func (a *App) ensureIPv6(s settings.Settings) {
+	env := a.devEnv()
+	if s.IPv6 != core.IPv6Auto || env.IPv6.Known() {
+		return
+	}
+	found := readIPv6(s, env.PrimaryIface)
+	a.dev.mu.Lock()
+	a.dev.env.IPv6 = found
+	a.dev.mu.Unlock()
 }
 
 // overlayOf is what s and env add to the core's config and the bypass list.
@@ -100,6 +131,12 @@ func (a *App) applyDev(s settings.Settings, build func(devnet.Overlay) ([]byte, 
 		return err
 	}
 	err = a.core.Apply(cfg)
+	if a.leaveTunCore(err) {
+		if cfg, err = build(dev); err != nil {
+			return err
+		}
+		err = a.core.Apply(cfg)
+	}
 	fellBack := false
 	if err != nil && env.Detected() {
 		log.Println("developer networks: the core refused what was detected:", err)
@@ -108,7 +145,7 @@ func (a *App) applyDev(s settings.Settings, build func(devnet.Overlay) ([]byte, 
 		}
 	}
 	a.dev.mu.Lock()
-	a.dev.tried, a.dev.fellBack = dev.Fingerprint(), fellBack
+	a.dev.tried, a.dev.triedIPv6, a.dev.fellBack = dev.Fingerprint(), env.IPv6.Usable, fellBack
 	a.dev.mu.Unlock()
 	return err
 }
@@ -122,21 +159,28 @@ func (a *App) devLoop() {
 			return
 		}
 		a.devSync()
-		if a.tools.ticks++; a.tools.ticks%toolsEvery == 0 {
+		// Without a window nothing shows the tools or the sources.
+		if a.tools.ticks++; a.tools.ticks%toolsEvery == 0 && !a.headless {
 			a.refreshTools()
+			a.probeSources()
 		}
 	}
 }
 
 // devSync reads the machine again and applies what changed. A reload keeps
-// the connections there are, so it interrupts nothing.
+// the connections there are, so it interrupts nothing, unless Auto changes
+// IPv6 under TUN: that makes the core open the TUN anew.
 func (a *App) devSync() {
 	env := a.detectDev(8 * time.Second)
 	s := a.settings.Get()
 	a.dev.mu.Lock()
-	tried := a.dev.tried
+	tried, triedIPv6 := a.dev.tried, a.dev.triedIPv6
 	a.dev.mu.Unlock()
-	if a.core.Status().State == core.Running && overlayOf(s, env).Fingerprint() != tried && a.setMu.TryLock() {
+	ipv6Changed := s.IPv6 == core.IPv6Auto && env.IPv6.Usable != triedIPv6
+	if a.core.Status().State == core.Running && (ipv6Changed || overlayOf(s, env).Fingerprint() != tried) && a.setMu.TryLock() {
+		if ipv6Changed {
+			log.Printf("automatic IPv6: usable=%v iface=%s reason=%s", env.IPv6.Usable, env.IPv6.Iface, env.IPv6.Reason)
+		}
 		err := a.applyConfig()
 		a.setMu.Unlock()
 		if err != nil {
@@ -147,7 +191,8 @@ func (a *App) devSync() {
 }
 
 // syncBypass gives the system proxy the bypass list as it stands, if it
-// differs and the system proxy is still bowel's.
+// differs and the system proxy is still bowel's. A write of bowel's that the
+// OS refused gets its next try here too, since nothing else comes round.
 func (a *App) syncBypass() {
 	a.proxyMu.Lock()
 	defer a.proxyMu.Unlock()
@@ -158,6 +203,7 @@ func (a *App) syncBypass() {
 	if !a.takeoverOn(s) || !s.SystemProxy {
 		return
 	}
+	a.retryWrite(s)
 	a.dev.mu.Lock()
 	last := a.dev.bypass
 	a.dev.mu.Unlock()

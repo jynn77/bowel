@@ -8,6 +8,12 @@
       "port": 8765
     },
     {
+      "name": "site-built",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8767", "--directory", "build/site"],
+      "port": 8767
+    },
+    {
       "name": "repo-static",
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "8766", "--directory", "."],

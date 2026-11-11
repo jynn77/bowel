@@ -3,10 +3,12 @@ package core
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -297,4 +299,111 @@ func mustFree(t *testing.T) int {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// TestListenErrorFromCoreLog reads the line of each system, and leaves the
+// other listeners and the core's other complaints alone.
+func TestListenErrorFromCoreLog(t *testing.T) {
+	const prefix = `time="2026-11-10T04:08:08Z" level=error msg="`
+	for _, tc := range []struct {
+		name, msg, port string
+	}{
+		{"unix", `Start Mixed(http+socks) server error: listen tcp 127.0.0.1:7899: bind: address already in use`, "7899"},
+		{"windows", `Start Mixed(http+socks) server error: listen tcp 127.0.0.1:7899: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.`, "7899"},
+		{"reserved on windows", `Start Mixed(http+socks) server error: listen tcp 127.0.0.1:7899: bind: An attempt was made to access a socket in a way forbidden by its access permissions.`, "7899"},
+		{"all interfaces", `Start HTTP server error: listen tcp :8080: bind: address already in use`, "8080"},
+		{"socks", `Start SOCKS server error: listen tcp [::1]:1080: bind: address already in use`, "1080"},
+		{"an extra port", `Listener bowel-port-7901 listen err: listen tcp 127.0.0.1:7901: bind: address already in use`, "7901"},
+		{"the probe's is not the user's", `Listener moho-probe listen err: listen tcp 127.0.0.1:7900: bind: address already in use`, ""},
+		{"dns is not the proxy", `Start DNS server error: listen udp 127.0.0.1:1053: bind: address already in use`, ""},
+		{"not a bind", `Start Mixed(http+socks) server error: too many open files`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &Manager{status: Status{State: Running}}
+			calls := 0
+			m.OnListenError = func() { calls++ }
+			m.noteListenError(prefix + tc.msg + `"`)
+			got := m.Status().Error
+			if tc.port == "" {
+				if got != "" || calls != 0 {
+					t.Fatalf("error %q, %d calls", got, calls)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.port) || calls != 1 {
+				t.Fatalf("error %q, %d calls", got, calls)
+			}
+			m.noteListenError(prefix + tc.msg + `"`)
+			if calls != 1 {
+				t.Errorf("the same line again told %d times", calls)
+			}
+		})
+	}
+}
+
+// TestListenErrorOnlyWhileRunning: a stopped core has no port to complain of.
+func TestListenErrorOnlyWhileRunning(t *testing.T) {
+	m := &Manager{status: Status{State: Stopped}}
+	m.setListenErr("port")
+	if got := m.Status().Error; got != "" {
+		t.Errorf("stopped: %q", got)
+	}
+}
+
+// TestProxyPortTaken runs the real core with its port taken: it goes on
+// running, which must not pass for working, and a reload that gets the port
+// clears the error.
+func TestProxyPortTaken(t *testing.T) {
+	bin := coreBin(t)
+	dir := t.TempDir()
+	geo(t, dir)
+	m, err := New(bin, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	told := make(chan struct{}, 8)
+	m.OnListenError = func() { told <- struct{}{} }
+	taken, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer taken.Close()
+	port := taken.Addr().(*net.TCPAddr).Port
+	probe, _ := FreePort()
+	cfg, err := BuildConfig(Input{
+		Routes: routes.Template(), Mode: "rule", MixedPort: port, LogLevel: "info",
+		TestURL: "http://x/", ProbePort: probe, Controller: m.ControllerFields(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Apply(cfg); err != nil {
+		t.Fatalf("start: %v\n%s", err, m.logs.last(10))
+	}
+	waitFor := func(what string, ok func() bool) {
+		t.Helper()
+		for deadline := time.Now().Add(5 * time.Second); !ok(); time.Sleep(20 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: status %+v\n%s", what, m.Status(), m.logs.last(10))
+			}
+		}
+	}
+	want := strconv.Itoa(port)
+	waitFor("port taken", func() bool { return strings.Contains(m.Status().Error, want) })
+	if s := m.Status(); s.State != Running {
+		t.Errorf("state %s, the core is still up", s.State)
+	}
+	<-told
+
+	taken.Close()
+	if err := m.Apply(cfg); err != nil {
+		t.Fatalf("reload: %v\n%s", err, m.logs.last(10))
+	}
+	waitFor("port free", func() bool { return m.Status().Error == "" })
+	c, err := net.DialTimeout("tcp", "127.0.0.1:"+want, time.Second)
+	if err != nil {
+		t.Fatalf("the core should have the port now: %v", err)
+	}
+	c.Close()
 }

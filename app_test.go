@@ -118,7 +118,7 @@ func TestAppFlows(t *testing.T) {
 	if hk.Provider != pv.ID || !strings.HasPrefix(hk.Name, "🇭🇰 香港 01"+core.NodeSep) {
 		t.Fatalf("node ids: %+v", hk)
 	}
-	def := s.Routes[0]
+	def := routeIn(s, "default")
 	if def.ID != "default" || !def.Auto || def.Node == "" {
 		t.Fatalf("default route %+v", def)
 	}

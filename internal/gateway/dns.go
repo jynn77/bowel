@@ -50,7 +50,7 @@ func isAnswer(b []byte, id uint16) bool {
 func scanLAN() Network {
 	ifs, _ := net.Interfaces()
 	for _, ifc := range ifs {
-		if ifc.Flags&net.FlagUp == 0 || ifc.Flags&net.FlagBroadcast == 0 || !physical(ifc.Name) {
+		if ifc.Flags&net.FlagUp == 0 || ifc.Flags&net.FlagBroadcast == 0 || !onLAN(ifc.Name) {
 			continue
 		}
 		if ip := ifaceIPv4(&ifc); ip != "" {

@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"sort"
 	"sync"
+	"time"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -19,13 +21,21 @@ import (
 )
 
 // The menu bar (L0 of docs/product-ia.md): a template icon, bright when
-// Moho has taken over and faint when it has not; nothing beside it. A click opens the
-// panel (ui_panel.go) under the icon; a right click, or a Control-click,
-// the menu, which takes over, switches the node and the mode without
-// opening the window.
+// Moho has taken over and faint when it has not; nothing beside it, unless
+// the user asks for the rates there (Settings.TraySpeed): then they stand
+// beside the icon as text, where the platform has text beside an icon
+// (macOS, and the Linux panels that show an indicator's label), and in the
+// icon's tooltip on Windows, which has none. A click opens the panel
+// (ui_panel.go) under the icon; a right click, or a Control-click, the
+// menu, which takes over, switches the node and the mode without opening
+// the window.
+
+// traySpeedEvery is how often the rates beside the icon are read while
+// nothing else shows them.
+const traySpeedEvery = 2 * time.Second
 
 func (a *App) setupTray() {
-	tray, err := mygo.NewTray(mygo.TrayOptions{ID: "moho", Icon: trayIcon(false), IconIsTemplate: true, ToolTip: "bowel"})
+	tray, err := mygo.NewTray(mygo.TrayOptions{ID: "moho", Icon: trayIcon(false), IconIsTemplate: true, ToolTip: trayName})
 	if err != nil {
 		log.Println("tray:", err)
 		return
@@ -91,11 +101,18 @@ func (a *App) togglePanel() {
 	fl.OnClosed(func() { u.panel.win.CompareAndSwap(fl, nil) })
 }
 
-// trayOn is the icon last drawn: bright (taken over) or faint.
+// trayOn is the icon last drawn: bright (taken over) or faint; and the
+// text last set beside it and in its tooltip.
 var trayOn = struct {
 	sync.Mutex
-	set, on bool
-}{}
+	set, on    bool
+	title, tip string
+	// nodes: the Linux menu last set offers the nodes.
+	nodes bool
+}{tip: trayName}
+
+// trayName is the tooltip when it tells no rates.
+const trayName = "bowel"
 
 func (a *App) refreshTray(s Snapshot) {
 	a.mu.Lock()
@@ -113,19 +130,117 @@ func (a *App) refreshTray(s Snapshot) {
 		_ = tray.SetIcon(trayIcon(on), true)
 	}
 	if runtime.GOOS == "linux" {
-		tray.SetMenu(a.trayMenu(s))
+		a.setTrayMenu(tray, s)
 	}
+	a.traySpeed(tray)
 	// The window's Update set the snapshot; the redraw queues after it.
 	if u := a.uiRef(); u != nil {
 		u.panelRedraw()
 	}
 }
 
-// trayTick redraws the open panel's speeds; the icon has none.
+// trayTick redraws the open panel's speeds, and those beside the icon if
+// the user has them there.
 func (a *App) trayTick() {
+	a.mu.Lock()
+	tray := a.tray
+	a.mu.Unlock()
+	if tray != nil {
+		a.traySpeed(tray)
+		// The Linux menu is built from the snapshot, which traffic does not
+		// change: rebuild it when traffic through the port comes or goes
+		// while not taken over, as that is what offers the nodes.
+		if runtime.GOOS == "linux" {
+			s := a.snapshot()
+			trayOn.Lock()
+			stale := trayOn.nodes != trayNodes(s.Takeover.On, a.tick())
+			trayOn.Unlock()
+			if stale {
+				a.setTrayMenu(tray, s)
+			}
+		}
+	}
 	if u := a.uiRef(); u != nil {
 		u.panelRedraw()
 	}
+}
+
+// setTrayMenu sets the Linux menu for s, and notes whether it offers the
+// nodes.
+func (a *App) setTrayMenu(tray *mygo.Tray, s Snapshot) {
+	trayOn.Lock()
+	trayOn.nodes = trayNodes(s.Takeover.On, a.tick())
+	trayOn.Unlock()
+	tray.SetMenu(a.trayMenu(s))
+}
+
+// traySpeed sets the rates beside the icon and in its tooltip, or takes
+// them away; the tray hears of it only when the text changes.
+func (a *App) traySpeed(tray *mygo.Tray) {
+	st := a.settings.Get()
+	t := a.tick()
+	title, tip := trayText(runtime.GOOS, st.TraySpeed && (a.takeoverOn(st) || trafficNow(t)), t)
+	trayOn.Lock()
+	newTitle, newTip := title != trayOn.title, tip != trayOn.tip
+	trayOn.title, trayOn.tip = title, tip
+	trayOn.Unlock()
+	if newTitle {
+		tray.SetTitle(title)
+	}
+	if newTip {
+		tray.SetToolTip(tip)
+	}
+}
+
+// trafficNow says whether t has traffic in it: a connection, or bytes
+// moving. Not taken over, the tray tells its rates only then.
+func trafficNow(t Tick) bool { return t.Active > 0 || t.Down > 0 || t.Up > 0 }
+
+// trayNodes says whether the tray offers the nodes: taken over, or with
+// traffic through the port, which leaves through the node chosen.
+func trayNodes(on bool, t Tick) bool { return on || trafficNow(t) }
+
+// trayText is what stands beside the icon and what its tooltip says, on
+// the system goos, with the rates shown or not. Windows has no text beside
+// a tray icon, so the tooltip tells the rates there. On Linux the tooltip
+// is also the indicator's name, which stays.
+func trayText(goos string, show bool, t Tick) (title, tip string) {
+	tip = trayName
+	if !show {
+		return "", tip
+	}
+	if goos == "windows" {
+		return "", fmt.Sprintf("%s · ↓ %s  ↑ %s", trayName, fmtRate(t.Down), fmtRate(t.Up))
+	}
+	return "↓" + padRate(t.Down) + " ↑" + padRate(t.Up), tip
+}
+
+// padRate is fmtRateShort at a fixed width, filled on the left with figure
+// spaces, which are as wide as a digit in the menu bar: the item keeps its
+// width as the numbers change, and its neighbors stay where they are.
+func padRate(b int64) string {
+	s := fmtRateShort(b)
+	for n := utf8.RuneCountInString(s); n < 4; n++ {
+		s = "\u2007" + s
+	}
+	return s
+}
+
+// fmtRateShort is a rate in at most four characters, for the menu bar:
+// "0B", "512B", "60K", "1.3M", "999M", "2.1G".
+func fmtRateShort(b int64) string {
+	if b < 1000 {
+		return fmt.Sprintf("%dB", max(b, 0))
+	}
+	v, i := float64(b), -1
+	for v >= 1000 && i < 3 {
+		v /= 1024
+		i++
+	}
+	if v < 9.95 {
+		return fmt.Sprintf("%.1f%c", v, "KMGT"[i])
+	}
+	return fmt.Sprintf("%.0f%c", v, "KMGT"[i])
 }
 
 func (a *App) trayMenu(s Snapshot) *mygo.Menu {
@@ -163,7 +278,7 @@ func (a *App) trayMenu(s Snapshot) *mygo.Menu {
 			sub = groupMenu(a, r, s.Imported)
 		}
 		items = append(items, &mygo.MenuItem{Label: label, Submenu: sub,
-			Disabled: len(s.Nodes) == 0 || !s.Takeover.On || s.Mode == "direct"})
+			Disabled: len(s.Nodes) == 0 || !trayNodes(s.Takeover.On, a.tick()) || s.Mode == "direct"})
 	}
 	items = append(items, mygo.Separator())
 	for _, m := range [][2]string{{"rule", i18n.T("规则模式", "Rule mode")}, {"global", i18n.T("全局模式", "Global mode")}, {"direct", i18n.T("直连模式", "Direct mode")}} {

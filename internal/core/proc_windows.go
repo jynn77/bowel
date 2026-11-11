@@ -10,13 +10,11 @@ import (
 	"strings"
 	"syscall"
 	"unsafe"
+
+	"github.com/oboo/moho/internal/nowindow"
 )
 
-const createNoWindow = 0x08000000
-
-func setProcAttr(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
-}
+func setProcAttr(cmd *exec.Cmd) { nowindow.Hide(cmd) }
 
 func interrupt(cmd *exec.Cmd) { _ = cmd.Process.Kill() }
 

@@ -58,7 +58,7 @@ func (a *App) nodeLists(all []routes.Route) (scopes, orders map[string][]string)
 	scopes, orders = map[string][]string{}, map[string][]string{}
 	names := a.fileNodes()
 	for _, r := range all {
-		if r.Direct {
+		if !r.NodeGroups() {
 			continue
 		}
 		q := r.Policy
@@ -157,7 +157,7 @@ func (a *App) followPolicies() error {
 		var first error
 		for _, r := range all {
 			g, ok := px[routes.Group(r)]
-			if r.Direct || !ok {
+			if !r.NodeGroups() || !ok {
 				continue
 			}
 			want := wanted(r)

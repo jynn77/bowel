@@ -145,8 +145,7 @@ func (u *UI) gatewayGuide(c *ui.Context, p *pal, toast func(string)) {
 					"This Mac is on Wi‑Fi: every device's traffic goes through it, so a cable is faster and steadier."))
 			}
 			if g.Firewall {
-				gatewayTip(c, p, p.warn, i18n.T("macOS 防火墙开着：如果其他设备查不到域名，在「系统设置 → 网络 → 防火墙」里允许 mihomo 接收连接。",
-					"The macOS firewall is on: if other devices can't look up names, allow mihomo incoming connections in System Settings → Network → Firewall."))
+				gatewayTip(c, p, p.warn, firewallTip())
 			}
 			gatewayTip(c, p, p.faint, i18n.T("网关开着时 bowel 会阻止 Mac 自动休眠，因为它一睡，这些设备就断网了。合上盖子仍会睡眠。",
 				"While the gateway is on, bowel keeps the Mac from sleeping, since the devices lose the network when it sleeps. Closing the lid still puts it to sleep."))

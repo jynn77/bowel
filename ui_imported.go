@@ -49,6 +49,17 @@ func (u *UI) provRouting(c *ui.Context, p *pal, pv ProviderView) {
 	r := pv.Routing
 	if r.Problem != "" {
 		ui.Text(c, i18n.T("带路由组，但不能使用：", "Has route groups that can't be used: ")+r.Problem).FontSize(11.5).TextColor(p.mute).MaxLines(2)
+		if name := r.NeedsFile; name != "" && pv.Enabled {
+			// The one problem a file settles: it is added under the name
+			// the config has for it.
+			ui.Row(c).Children(func() {
+				link(c.Key("needs-file"), p, i18n.T("选择文件…", "Choose file…"), func() {
+					if u.app != nil && !u.pending("add") {
+						u.do(func() error { return u.app.addProviderFileAs(bg(), name) })
+					}
+				})
+			})
+		}
 		return
 	}
 	if r.Groups == 0 || !pv.Enabled {

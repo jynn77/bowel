@@ -1,7 +1,7 @@
 {
   "name": "bowel",
   "identifier": "dev.moho.app",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "out": "build",
   "updates": {
     "publicKey": "swwtdEhMxc+h4Tt910EY87sEMQu3Oe3I+ZFScLiu4dE=",

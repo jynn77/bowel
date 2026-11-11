@@ -32,7 +32,7 @@ func TestActivityRouteMenu(t *testing.T) {
 	tt.Advance(300 * time.Millisecond)
 	m := tt.Menu()
 	shot(t, tt, "activity-route-menu")
-	for _, want := range []string{"让 anthropic.com 及其子域名 走：", "默认", "AI 服务", "直连", "只让 api.anthropic.com 走…", "删除这条规则", "管理规则…"} {
+	for _, want := range []string{"让 anthropic.com 及其子域名 走：", "其他流量", "AI 服务", "直连", "只让 api.anthropic.com 走…", "删除这条规则", "管理规则…"} {
 		if !slices.Contains(m, want) {
 			t.Errorf("menu lacks %q: %q", want, m)
 		}

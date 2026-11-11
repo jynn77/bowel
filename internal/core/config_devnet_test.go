@@ -160,9 +160,14 @@ func TestDevNetworkTun(t *testing.T) {
 
 func TestDevNetworkOffLeavesConfigAlone(t *testing.T) {
 	cfg := build(t, devInput("rule", devnet.Overlay{}))
-	for _, k := range []string{"proxies", "hosts"} {
-		if _, ok := cfg[k]; ok {
-			t.Errorf("%s is there with nothing to add", k)
+	if _, ok := cfg["proxies"]; ok {
+		t.Errorf("proxies is there with nothing to add")
+	}
+	// The only hosts are the resolver's own servers.
+	hosts, _ := cfg["hosts"].(map[string]any)
+	for k := range hosts {
+		if _, ok := NameserverHosts[k]; !ok {
+			t.Errorf("hosts has %s with nothing to add", k)
 		}
 	}
 	// The resolver is the core's own, not the overlay's: it is there with

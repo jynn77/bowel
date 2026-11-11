@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/qr"
 	"github.com/oboo/moho/internal/routes"
@@ -46,11 +47,15 @@ func openSettings(dir string) (*settings.Store, error) {
 // settingsData is the settings as saved, plus what the page can do here.
 type settingsData struct {
 	settings.Settings
+	// IPv6 is the page's switch: nothing here reads the network, so Auto
+	// shows as on, which is what it comes to.
+	IPv6      bool `json:"ipv6"`
 	GeoUpdate bool `json:"canUpdateGeo"`
 }
 
 func (x *bridge) settingsData() settingsData {
-	return settingsData{Settings: x.set.Get(), GeoUpdate: canUpdateGeo}
+	s := x.set.Get()
+	return settingsData{Settings: s, IPv6: s.Options.IPv6 != core.IPv6Off, GeoUpdate: canUpdateGeo}
 }
 
 // setLanguage changes the language of what the bridge writes. It touches

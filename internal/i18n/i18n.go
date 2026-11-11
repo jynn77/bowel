@@ -58,8 +58,18 @@ func Lang() string {
 // En says whether the interface is in English.
 func En() bool { return lang.Load() == en }
 
-// T is the pair's string in the interface's language.
+// T is the pair's string in the interface's language. Strings are
+// written for a Mac; on other systems "Mac" reads as "computer" does in
+// that language (computer.go).
 func T(zhs, ens string) string {
+	s := pair(zhs, ens)
+	if notMac {
+		return computer(s, lang.Load())
+	}
+	return s
+}
+
+func pair(zhs, ens string) string {
 	switch lang.Load() {
 	case en:
 		return ens

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<!-- The card link previews show (og:image), 1200×630. scripts/site-og.sh
+     photographs it once per language: og-card.html?en and og-card.html?zh. -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; }
+  body { width: 1200px; height: 630px; overflow: hidden; position: relative; background: #f6f4ef; color: #151413;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif; }
+  .copy { position: absolute; left: 72px; top: 76px; width: 470px; }
+  .brand { display: flex; align-items: center; gap: 18px; font-size: 44px; font-weight: 800; letter-spacing: -.02em; }
+  .brand img { width: 76px; height: 76px; }
+  h1 { margin: 54px 0 0; font-size: 58px; line-height: 1.1; font-weight: 800; letter-spacing: -.02em; }
+  .zh h1 { letter-spacing: 0; line-height: 1.2; }
+  p { margin: 30px 0 0; font-size: 27px; color: #3b3936; }
+  .shot { position: absolute; left: 590px; top: 96px; width: 900px; border-radius: 14px;
+    box-shadow: 0 30px 70px -20px rgba(21, 20, 19, .35), 0 0 0 1px rgba(21, 20, 19, .1); }
+  .zh .en, .en .zh { display: none; }
+</style>
+</head>
+<body>
+<div class="copy">
+  <div class="brand"><img src="../site/icon.png" alt="">bowel</div>
+  <h1><span class="zh">跨平台的 mihomo 客户端</span><span class="en">A cross-platform mihomo client</span></h1>
+  <p>macOS · Windows · Linux · Android</p>
+</div>
+<img class="shot" id="shot" alt="">
+<script>
+  var l = location.search === "?zh" ? "zh" : "en";
+  document.documentElement.className = l;
+  document.getElementById("shot").src = "../site/shots/home-" + l + ".webp";
+</script>
+</body>
+</html>

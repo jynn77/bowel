@@ -144,6 +144,9 @@ func (u *UI) modeToolsLine(c *ui.Context, p *pal) {
 // toolsSection is the section of the expanded 模式 cell: a tool to a row,
 // with what it is doing and what can be done about it.
 func (u *UI) toolsSection(c *ui.Context, p *pal) {
+	if !devtools.Supported() {
+		return
+	}
 	h := &u.home
 	if u.app != nil && c.Now().Sub(h.toolsAt) > time.Minute {
 		h.toolsAt = c.Now()
@@ -154,24 +157,26 @@ func (u *UI) toolsSection(c *ui.Context, p *pal) {
 	if len(miss) > 0 {
 		line, col = fmt.Sprintf(i18n.T("%d 个开发工具未接入流量", "%d developer tools aren't on the proxy"), len(miss)), p.warn
 	}
-	label := i18n.T("查看 ▾", "Show ▾")
+	label := i18n.T("查看", "Show")
 	if h.toolsList {
-		label = i18n.T("收起 ▴", "Hide ▴")
+		label = i18n.T("收起", "Hide")
 	}
 	section(c, p, i18n.T("开发工具", "Developer tools"), "", func() {
 		ui.Text(c, line).FontSize(13).FontWeight(600).TextColor(col)
 	}, func() {
 		ui.Row(c).Gap(8).Children(func() {
 			u.toolsUndoAll(c, p)
-			btn(c.Key("tools-toggle"), p, label).OnClick(func() { h.toolsList = !h.toolsList })
+			btnChevron(c.Key("tools-toggle"), p, label, h.toolsList).OnClick(func() { h.toolsList = !h.toolsList })
 		})
 	})
 	if !h.toolsList {
 		return
 	}
-	for _, t := range list {
-		u.toolRow(c, p, t)
-	}
+	nested(c, p, func() {
+		for _, t := range list {
+			u.toolRow(c, p, t)
+		}
+	})
 }
 
 func (u *UI) toolsUndoAll(c *ui.Context, p *pal) {
@@ -205,7 +210,7 @@ func (u *UI) toolRow(c *ui.Context, p *pal, t devtools.Tool) {
 	ui.Row(c.Key(t.ID)).Gap(14).Padding(10, 0).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
 		ui.Column(c).Width(220).Shrink(0).Gap(1).Children(func() {
 			disp(ui.Text(c, toolName(t.ID)), p).FontSize(15).FontWeight(700).TextColor(p.ink).MaxLines(1).Ellipsis("…")
-			ui.Text(c, toolSub(t.ID)).FontSize(11.5).TextColor(p.mute).MaxLines(1).Ellipsis("…")
+			ui.Text(c, toolSubOf(t)).FontSize(11.5).TextColor(p.mute).MaxLines(1).Ellipsis("…")
 		})
 		ui.Text(c, toolStateWord(t.State)).FontSize(12.5).FontWeight(600).TextColor(p.toolStateColor(t.State)).NoWrap().Grow(1).Tooltip(u.toolWhy(t))
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Shrink(0).Children(func() { u.toolActions(c, p, t) })

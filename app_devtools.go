@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/egoist/mygo"
 
+	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/devtools"
 )
 
@@ -21,6 +23,12 @@ type toolsState struct {
 	mu    sync.Mutex
 	list  []devtools.Tool
 	ticks int
+	// sources are where the package tools download from. Reading them is a
+	// few small files, done whenever they are on screen; measuring them is
+	// a dozen requests, done every few minutes and when one is changed.
+	sources  []devtools.Source
+	probing  sync.Mutex // one measurement at a time
+	probedAt time.Time
 }
 
 // toolsEvery is how many devLoop ticks pass between detections: reading a
@@ -52,6 +60,96 @@ func (a *App) toolsView() []devtools.Tool {
 	a.tools.mu.Lock()
 	defer a.tools.mu.Unlock()
 	return a.tools.list
+}
+
+// refreshSources reads the download sources again, and says so only when
+// one changed: the page that shows them asks every few seconds.
+func (a *App) refreshSources() {
+	list := devtools.Sources(a.toolOptions())
+	a.tools.mu.Lock()
+	same := slices.EqualFunc(a.tools.sources, list, func(x, y devtools.Source) bool {
+		return x.ID == y.ID && x.Mirror == y.Mirror && x.File == y.File
+	})
+	// What was measured still holds: it covers every way, in use or not.
+	for i := range list {
+		for _, old := range a.tools.sources {
+			if old.ID == list[i].ID {
+				list[i].Probes = old.Probes
+			}
+		}
+	}
+	a.tools.sources = list
+	a.tools.mu.Unlock()
+	if !same {
+		a.emit()
+	}
+}
+
+// probeSources measures every way of reaching each source, unless that is
+// already happening. The official address is asked through bowel only
+// while the core is running: otherwise nothing is known about it.
+func (a *App) probeSources() {
+	if !a.tools.probing.TryLock() {
+		return
+	}
+	defer a.tools.probing.Unlock()
+	a.refreshSources()
+	port := 0
+	if a.core.Status().State == core.Running {
+		port = a.settings.Get().MixedPort
+	}
+	prober := devtools.NewProber(port)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	list := a.sourcesView()
+	probes := make([][]devtools.Probe, len(list))
+	var wg sync.WaitGroup
+	for i, s := range list {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			probes[i] = prober.Probe(ctx, s)
+		}()
+	}
+	wg.Wait()
+	a.tools.mu.Lock()
+	for i, s := range list {
+		for j := range a.tools.sources {
+			if a.tools.sources[j].ID == s.ID {
+				a.tools.sources[j].Probes = probes[i]
+			}
+		}
+	}
+	a.tools.probedAt = time.Now()
+	a.tools.mu.Unlock()
+	a.emit()
+}
+
+// probeSourcesIfOlder measures again when the last time was longer ago.
+func (a *App) probeSourcesIfOlder(d time.Duration) {
+	a.tools.mu.Lock()
+	old := time.Since(a.tools.probedAt) > d
+	a.tools.mu.Unlock()
+	if old {
+		a.probeSources()
+	}
+}
+
+// setSource points a tool at a mirror, or with "" at its official source.
+func (a *App) setSource(id, mirror string) error {
+	defer a.begin("source:" + id)()
+	if err := devtools.SetMirror(a.toolOptions(), id, mirror); err != nil {
+		return err
+	}
+	a.refreshSources()
+	go a.probeSources()
+	return nil
+}
+
+func (a *App) sourcesView() []devtools.Source {
+	a.tools.mu.Lock()
+	defer a.tools.mu.Unlock()
+	return a.tools.sources
 }
 
 // restartColima restarts Colima if it is running: stopped, it reads the

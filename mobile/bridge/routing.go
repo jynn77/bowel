@@ -97,7 +97,7 @@ func (x *bridge) nodeLists(all []routes.Route) (scopes, orders map[string][]stri
 	scopes, orders = map[string][]string{}, map[string][]string{}
 	names := x.fileNodes()
 	for _, r := range all {
-		if r.Direct {
+		if !r.NodeGroups() {
 			continue
 		}
 		q := r.Policy
@@ -147,7 +147,7 @@ func (x *bridge) followPolicies(ctx context.Context, c *mihomo.Client) error {
 	var first error
 	for _, r := range x.routes() {
 		g, ok := px[routes.Group(r)]
-		if r.Direct || !ok {
+		if !r.NodeGroups() || !ok {
 			continue
 		}
 		want := wanted(r)
@@ -335,7 +335,7 @@ func (x *bridge) explain(input string) explainData {
 		}
 	}
 	if id == "" {
-		return explainData{Note: i18n.T("没有命中域名规则：国内网站和局域网按 GeoSite / GeoIP 走「直连」，其余走「默认」。", "No domain rule matches it: mainland sites and the LAN go Direct by GeoSite / GeoIP, the rest by Default.")}
+		return explainData{Note: i18n.T("没有命中域名规则：国内网站和局域网按 GeoSite / GeoIP 走「直连」，其余归「其他流量」。", "No domain rule matches it: mainland sites and the LAN go Direct by GeoSite / GeoIP, the rest is Other.")}
 	}
 	r, err := x.route(id)
 	if err != nil {
@@ -390,13 +390,13 @@ func (x *bridge) todayShare(groupBytes map[string]int64) map[string]float64 {
 // routeOfGroup maps a group the core names to the route it belongs to.
 func routeOfGroup(all []routes.Route, group string) string {
 	for _, r := range all {
-		if !r.Direct && (group == routes.Group(r) || routes.Internal(r, group)) {
+		if (!r.Direct || r.OwnExit()) && (group == routes.Group(r) || routes.Internal(r, group)) {
 			return r.ID
 		}
 	}
 	if group == "DIRECT" {
 		for _, r := range all {
-			if r.Direct && !r.Reject {
+			if r.Direct && !r.Reject && r.ID != routes.Default && !r.OwnExit() {
 				return r.ID
 			}
 		}

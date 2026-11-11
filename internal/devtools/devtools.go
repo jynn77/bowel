@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -27,6 +28,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/nowindow"
 )
 
 // The tools, by ID.
@@ -126,6 +128,11 @@ type Options struct {
 	DataDir string // where written.json is
 	Port    int    // bowel's mixed port
 	NoProxy []string
+	// Shell is the terminal's shell, "zsh" or "bash"; "" is this
+	// machine's (platform.go). Netcat likewise is the nc that ssh and
+	// the shell call, "openbsd" or "ncat"; "" is this machine's.
+	Shell  string
+	Netcat string
 }
 
 const colimaConfig = ".colima/default/colima.yaml"
@@ -148,19 +155,18 @@ func find(name string) string {
 // is a stub that opens an installer dialog.
 func git() string {
 	p := find("git")
-	if p != "/usr/bin/git" {
+	if p != "/usr/bin/git" || runtime.GOOS != "darwin" {
 		return p
 	}
-	if exec.Command("/usr/bin/xcode-select", "-p").Run() != nil {
+	if nowindow.Command("/usr/bin/xcode-select", "-p").Run() != nil {
 		return ""
 	}
 	return p
 }
 
 func (o Options) cmd(ctx context.Context, name string, args ...string) *exec.Cmd {
-	c := exec.CommandContext(ctx, name, args...)
+	c := nowindow.CommandContext(ctx, name, args...)
 	c.Env = append(os.Environ(), "HOME="+o.Home, "PATH="+strings.Join(binDirs, ":")+":"+os.Getenv("PATH"))
-	hideWindow(c)
 	return c
 }
 
@@ -657,7 +663,7 @@ func (o Options) shellBlock() []string {
 	a := fmt.Sprintf("http://127.0.0.1:%d", o.Port)
 	no := o.noProxy("127.0.0.1", "::1")
 	return wrap("",
-		fmt.Sprintf("if nc -z 127.0.0.1 %d 2>/dev/null; then", o.Port),
+		fmt.Sprintf("if %s 2>/dev/null; then", o.listening()),
 		fmt.Sprintf(`  export http_proxy=%[1]s https_proxy=%[1]s HTTP_PROXY=%[1]s HTTPS_PROXY=%[1]s no_proxy="%[2]s" NO_PROXY="%[2]s"`, a, no),
 		"fi")
 }
@@ -676,13 +682,17 @@ func blockPortOf(lines []string) int {
 // shellValue asks an interactive zsh for its proxy. The mark tells the
 // answer from what a .zshrc prints.
 func (o Options) shellValue(ctx context.Context) (string, bool) {
-	zsh := find("zsh")
-	if zsh == "" {
+	name := o.shell()
+	if name == "" {
+		return "", false
+	}
+	sh := find(name)
+	if sh == "" {
 		return "", false
 	}
 	c, cancel := context.WithTimeout(ctx, 6*time.Second)
 	defer cancel()
-	out, err := o.cmd(c, zsh, "-ic", `print -r -- "__BOWEL__${https_proxy:-$HTTPS_PROXY}"`).Output()
+	out, err := o.cmd(c, sh, "-ic", `printf '%s\n' "__BOWEL__${https_proxy:-$HTTPS_PROXY}"`).Output()
 	if err != nil && len(out) == 0 {
 		return "", false
 	}
@@ -694,8 +704,12 @@ func (o Options) shellValue(ctx context.Context) (string, bool) {
 }
 
 func (o Options) readShell(ctx context.Context) Tool {
-	t := Tool{ID: Shell, State: Off, Source: SourceNone, Guard: GuardAuto, File: "~/" + shellFile}
-	text, err := read(o.path(shellFile))
+	rel := o.shellRel()
+	if rel == "" { // a shell bowel writes nothing for (fish, say)
+		return Tool{ID: Shell, State: Unknown, Source: SourceNone, Guard: GuardAuto}
+	}
+	t := Tool{ID: Shell, State: Off, Source: SourceNone, Guard: GuardAuto, File: "~/" + rel}
+	text, err := read(o.path(rel))
 	if err != nil {
 		t.State = Unknown
 		return t
@@ -767,9 +781,14 @@ func (o Options) readGitHTTPS(ctx context.Context, shell Tool) Tool {
 const sshFile = ".ssh/config"
 
 func (o Options) sshBlock() []string {
+	nc := o.netcat()
+	proxy := fmt.Sprintf("nc -X 5 -x 127.0.0.1:%d %%h %%p", o.Port)
+	if nc == ncatKind {
+		proxy = fmt.Sprintf("ncat --proxy-type socks5 --proxy 127.0.0.1:%d %%h %%p", o.Port)
+	}
 	return wrap("",
-		fmt.Sprintf(`Match host github.com exec "nc -z 127.0.0.1 %d"`, o.Port),
-		fmt.Sprintf("  ProxyCommand nc -X 5 -x 127.0.0.1:%d %%h %%p", o.Port),
+		fmt.Sprintf(`Match host github.com exec "%s"`, o.listeningWith(nc)),
+		"  ProxyCommand "+proxy,
 		"Match all")
 }
 
@@ -816,8 +835,12 @@ func (o Options) readGitSSH(ctx context.Context) Tool {
 	return t
 }
 
-// Detect reads every tool found on this machine.
+// Detect reads every tool found on this machine. On Windows there is
+// nothing yet that bowel knows how to connect, and nothing is read.
 func Detect(ctx context.Context, o Options) []Tool {
+	if !Supported() {
+		return nil
+	}
 	var out []Tool
 	w := o.loadWritten()
 	if o.colimaInstalled() {
@@ -846,6 +869,9 @@ func (o Options) writeBlock(rel string, place func(string, []string) string, lin
 
 // Apply points a tool at the proxy, replacing what bowel wrote before.
 func Apply(o Options, id string) error {
+	if !Supported() {
+		return errUnsupported
+	}
 	switch id {
 	case Dockerd:
 		text, err := read(o.path(colimaConfig))
@@ -882,8 +908,18 @@ func Apply(o Options, id string) error {
 		}
 		return o.remember(id)
 	case Shell:
-		return o.writeBlock(shellFile, appended, o.shellBlock(), 0o644)
+		rel := o.shellRel()
+		if rel == "" {
+			return errors.New(i18n.T("bowel 只会接入 zsh 和 bash 的终端环境", "bowel only connects the terminals of zsh and bash"))
+		}
+		if o.netcat() == "" && o.shell() != "bash" {
+			return errNoNetcat()
+		}
+		return o.writeBlock(rel, appended, o.shellBlock(), 0o644)
 	case GitSSH:
+		if o.netcat() == "" {
+			return errNoNetcat()
+		}
 		// At the top: ssh takes the first value it meets.
 		return o.writeBlock(sshFile, prepended, o.sshBlock(), 0o600)
 	}
@@ -934,19 +970,27 @@ func Undo(o Options, id string) (changed bool, err error) {
 		}
 		return changed, o.forget(id)
 	}
-	rel := map[string]string{Shell: shellFile, GitHTTPS: gitFile, GitSSH: sshFile}[id]
-	if rel == "" {
+	// Whatever shell is the user's now, a block in the other's file is
+	// bowel's too.
+	rels := map[string][]string{Shell: {shellFile, bashFile}, GitHTTPS: {gitFile}, GitSSH: {sshFile}}[id]
+	if rels == nil {
 		return false, fmt.Errorf("devtools: unknown tool %s", id)
 	}
-	text, err := read(o.path(rel))
-	if err != nil {
-		return false, err
+	for _, rel := range rels {
+		text, err := read(o.path(rel))
+		if err != nil {
+			return changed, err
+		}
+		out := strip(text)
+		if out == text {
+			continue
+		}
+		if err := write(o.path(rel), out, 0o644); err != nil {
+			return changed, err
+		}
+		changed = true
 	}
-	out := strip(text)
-	if out == text {
-		return false, nil
-	}
-	return true, write(o.path(rel), out, 0o644)
+	return changed, nil
 }
 
 // UndoAll undoes every tool it can, and names those it changed.

@@ -36,6 +36,11 @@ type Route struct {
 // Default is the route that takes what no rule matched.
 const Default = "default"
 
+// defaultGroup is the default route's mihomo group. The interface calls the
+// route 其他流量 (Title); this name stays, since it is what the core
+// remembers the selector by.
+const defaultGroup = "默认"
+
 // Reject is the route whose traffic is refused.
 const Reject = "reject"
 
@@ -53,6 +58,16 @@ func BackupStep(r Route, i int) string { return fmt.Sprintf("%s·备用·%d", r.
 // Internal says whether name is one of a route's helper groups.
 func Internal(r Route, name string) bool { return strings.HasPrefix(name, r.Name+"·") }
 
+// NodeGroups says whether the core has groups of nodes for r. The default
+// route keeps its own while it goes direct: global mode still uses them.
+func (r Route) NodeGroups() bool { return !r.Direct || r.ID == Default && r.Policy.Direct }
+
+// OwnExit says whether a route that goes direct by the user's choice keeps
+// a group of its own in the core, holding DIRECT alone: the core then names
+// the group for its connections, as it does for one that uses nodes. The
+// default route has none, since MATCH is the rule that says whose they are.
+func (r Route) OwnExit() bool { return r.Policy.Direct && r.ID != Default && ChoosesExit(r.ID) }
+
 // Title is a route's name as the interface shows it. Name stays the
 // mihomo group's, in Chinese, so that configs and choices keep across a
 // change of language.
@@ -61,6 +76,9 @@ func Title(r Route) string {
 		return r.Label
 	}
 	if en, ok := titleEn[r.ID]; ok {
+		if r.ID == Default && r.Name == defaultGroup {
+			return i18n.T("其他流量", en)
+		}
 		return i18n.T(r.Name, en)
 	}
 	return r.Name
@@ -74,10 +92,10 @@ func Describe(r Route) string {
 	return r.Summary
 }
 
-var titleEn = map[string]string{Default: "Default", "ai": "AI", "media": "Streaming", "dev": "Dev", "direct": "Direct", Reject: "Block"}
+var titleEn = map[string]string{Default: "Other", "ai": "AI", "media": "Streaming", "dev": "Dev", "direct": "Direct", Reject: "Block"}
 
 var summaryEn = map[string]string{
-	"没命中其他规则的流量":                              "Traffic no other rule matched",
+	"没命中任何规则的流量":                              "Traffic no rule matched",
 	"OpenAI · Claude · Gemini · Perplexity 等": "OpenAI · Claude · Gemini · Perplexity and more",
 	"YouTube · Netflix · Spotify · Disney+ 等": "YouTube · Netflix · Spotify · Disney+ and more",
 	"GitHub · npm · Docker · PyPI · Go 等":     "GitHub · npm · Docker · PyPI · Go and more",
@@ -89,7 +107,7 @@ var summaryEn = map[string]string{
 // route comes first for display, its rule (MATCH) last.
 func Template() []Route {
 	return []Route{
-		{ID: Default, Name: "默认", Color: "--r-default", Summary: "没命中其他规则的流量"},
+		{ID: Default, Name: defaultGroup, Color: "--r-default", Summary: "没命中任何规则的流量"},
 		{ID: "ai", Name: "AI 服务", Color: "--r-ai", Summary: "OpenAI · Claude · Gemini · Perplexity 等", Rules: builtinRules("ai")},
 		{ID: "media", Name: "流媒体", Color: "--r-media", Summary: "YouTube · Netflix · Spotify · Disney+ 等", Rules: builtinRules("media")},
 		{ID: "dev", Name: "开发", Color: "--r-dev", Summary: "GitHub · npm · Docker · PyPI · Go 等", Rules: builtinRules("dev")},

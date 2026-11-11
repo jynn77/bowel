@@ -22,6 +22,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/oboo/moho/internal/core"
+	"github.com/oboo/moho/internal/devnet"
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/locate"
 	"github.com/oboo/moho/internal/settings"
@@ -628,6 +629,24 @@ func (u *UI) generalSection(c *ui.Context, p *pal, s settings.Settings) {
 	})
 	u.optSwitch(c, p, "hidden", i18n.T("静默启动", "Start hidden"), i18n.T("开机启动时只留在菜单栏，不打开窗口", "When opened at login, stay in the menu bar without a window"), s.StartHidden,
 		func(s *settings.Settings, on bool) { s.StartHidden = on })
+	title, desc := traySpeedLabel(runtime.GOOS)
+	u.optSwitch(c, p, "trayspeed", title, desc, s.TraySpeed,
+		func(s *settings.Settings, on bool) { s.TraySpeed = on })
+}
+
+// traySpeedLabel names the option that puts the rates by the menu bar icon,
+// as the system goos shows them (trayText).
+func traySpeedLabel(goos string) (title, desc string) {
+	switch goos {
+	case "windows":
+		return i18n.T("在托盘图标上显示网速", "Show network speed on the tray icon"),
+			i18n.T("接管时，鼠标停在托盘图标上会显示实时的下载和上传速度", "While taken over, hovering the tray icon shows the live download and upload rates")
+	case "linux":
+		return i18n.T("在托盘图标旁显示网速", "Show network speed beside the tray icon"),
+			i18n.T("接管时，实时的下载和上传速度显示在图标旁边；有些桌面的面板不显示这段文字", "While taken over, the live download and upload rates stand beside the icon; some desktops’ panels don’t show this text")
+	}
+	return i18n.T("在菜单栏显示网速", "Show network speed in the menu bar"),
+		i18n.T("接管时，实时的下载和上传速度显示在图标旁边", "While taken over, the live download and upload rates stand beside the icon")
 }
 
 // skinCard is one skin to pick: a small board in its own colors, faces,
@@ -717,8 +736,10 @@ func (u *UI) inboundSection(c *ui.Context, p *pal, s settings.Settings) {
 	})
 
 	optHeading(c, p, i18n.T("局域网", "LAN"))
-	optRow(c, p, i18n.T("网关模式", "Gateway mode"), gatewayDesc(), func() { u.gatewaySwitch(c, "gateway", u.settingsToast) })
-	if u.gatewayShownOn() && !searching() {
+	if gatewaySupported() {
+		optRow(c, p, i18n.T("网关模式", "Gateway mode"), gatewayDesc(), func() { u.gatewaySwitch(c, "gateway", u.settingsToast) })
+	}
+	if gatewaySupported() && u.gatewayShownOn() && !searching() {
 		ui.Column(c).Padding(10, 0, 12, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() { u.gatewayGuide(c, p, u.settingsToast) })
 	}
 	lan := i18n.T("同一网络里的设备可以把 bowel 当代理用", "Devices on the same network can use bowel as their proxy")
@@ -750,6 +771,23 @@ func (u *UI) inboundSection(c *ui.Context, p *pal, s settings.Settings) {
 	})
 }
 
+// ipv6Note says what the IPv6 setting does, and what Auto is doing now.
+func ipv6Note(mode core.IPv6Mode, st devnet.IPv6State) string {
+	switch {
+	case mode == core.IPv6Off:
+		return i18n.T("只用 IPv4", "IPv4 only")
+	case mode == core.IPv6On:
+		return i18n.T("总是解析和连接 IPv6 地址，当前网络没有 IPv6 时可能连不上", "Always resolve and connect to IPv6 addresses. Sites may fail on a network without IPv6")
+	case st.Usable:
+		return fmt.Sprintf(i18n.T("现在已启用：%s 上的 IPv6 可用", "On now: IPv6 works on %s"), st.Iface)
+	case st.Reason == devnet.IPv6NoAddress:
+		return i18n.T("现在已停用：当前网络没有公网 IPv6 地址", "Off now: this network has no public IPv6 address")
+	case st.Reason == devnet.IPv6Unreachable:
+		return i18n.T("现在已停用：当前网络的 IPv6 连不通", "Off now: IPv6 doesn't reach the internet on this network")
+	}
+	return i18n.T("只在当前网络真正有 IPv6 时启用", "On only while the current network really has IPv6")
+}
+
 func (u *UI) coreSection(c *ui.Context, p *pal, s settings.Settings) {
 	sectionNote(c, p, i18n.T("mihomo 自己的行为", "How mihomo itself behaves"))
 	optRow(c, p, i18n.T("日志级别", "Log level"), i18n.T("「日志」页里内核日志的详细程度", "How detailed the core's log on the Log page is"), func() {
@@ -757,7 +795,13 @@ func (u *UI) coreSection(c *ui.Context, p *pal, s settings.Settings) {
 			u.setOpt(func(s *settings.Settings) { s.LogLevel = v })
 		})
 	})
-	u.optSwitch(c, p, "ipv6", "IPv6", i18n.T("解析和连接 IPv6 地址", "Resolve and connect to IPv6 addresses"), s.IPv6, func(s *settings.Settings, on bool) { s.IPv6 = on })
+	optRow(c, p, "IPv6", ipv6Note(s.IPv6, u.snap.Dev.Env.IPv6), func() {
+		labels := []string{i18n.T("关闭", "Off"), i18n.T("自动", "Auto"), i18n.T("开启", "On")}
+		sel := max(0, slices.Index(core.IPv6Modes, string(s.IPv6)))
+		if actSeg(c.Key("ipv6"), p, &sel, labels).Changed() && core.IPv6Modes[sel] != string(s.IPv6) {
+			u.setOpt(func(s *settings.Settings) { s.IPv6 = core.IPv6Mode(core.IPv6Modes[sel]) })
+		}
+	})
 	u.optSwitch(c, p, "unified", i18n.T("统一延迟", "Unified delay"), i18n.T("测速时扣掉握手，不同协议的延迟可以直接比较", "Leave out the handshake when testing, so delays of different protocols compare"), s.UnifiedDelay,
 		func(s *settings.Settings, on bool) { s.UnifiedDelay = on })
 	u.optSwitch(c, p, "tcpc", i18n.T("TCP 并发", "TCP concurrent"), i18n.T("一个域名有多个 IP 时同时连，用最先连上的", "When a domain has several IPs, dial them all and use the first to connect"), s.TCPConcurrent,
@@ -828,7 +872,7 @@ func (u *UI) coreSection(c *ui.Context, p *pal, s settings.Settings) {
 			u.setOpt(func(s *settings.Settings) { s.IPInfoURL = v })
 		}).Placeholder(settings.IPInfoURLs[0].URL)
 	})
-	optWide(c, p, i18n.T("测速地址", "Test URL"), i18n.T("Provider 健康检查用的地址；默认路由没改过测速站点时，也是它的主目标。其他路由在各自的节点列表里设置", "Used for provider health checks, and as the default route's main target unless you changed its test sites. Other routes set theirs in their node list"), func() {
+	optWide(c, p, i18n.T("测速地址", "Test URL"), i18n.T("Provider 健康检查用的地址；「其他流量」没改过测速站点时，也是它的主目标。其他路由在各自的节点列表里设置", "Used for provider health checks, and as Other's main target unless you changed its test sites. Other routes set theirs in their node list"), func() {
 		// A preset is an address picked by name, which fills the field
 		// below; any other address is typed, and the picker then reads
 		// 自定义. Both controls write the one setting.
@@ -1137,6 +1181,7 @@ func (u *UI) aboutSection(c *ui.Context, p *pal, _ settings.Settings) {
 			u.setOpt((*settings.Settings).ResetCore)
 		})
 	})
+	u.backupRows(c, p)
 }
 
 // ---- Parts ----

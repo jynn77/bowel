@@ -159,7 +159,9 @@ func (u *UI) panelIssueAction(action string) {
 
 // panelSpeed: live down and up, and today's total.
 func (u *UI) panelSpeed(c *ui.Context, p *pal) {
-	if !u.snap.Takeover.On {
+	// Not taken over, the rates still show while there is traffic to tell
+	// of: an app pointed at the port passes it either way.
+	if !u.snap.Takeover.On && !u.trafficSeen() {
 		return
 	}
 	t := u.tick
@@ -192,12 +194,17 @@ func (u *UI) panelNodes(c *ui.Context, p *pal) {
 				ui.Text(c, i18n.T("切换中…", "Switching…")).FontSize(11).TextColor(p.mute)
 			}
 		})
+		// Not taken over, the nodes are listed while traffic is observed: an
+		// app pointed at the port leaves through the node chosen here.
+		seen := !s.Takeover.On && u.trafficSeen()
 		note := ""
 		switch {
-		case !s.Takeover.On:
+		case !s.Takeover.On && !seen:
 			note = i18n.T("流量不经过 bowel", "Traffic isn’t going through bowel")
 		case s.Mode == "direct":
 			note = i18n.T("直连模式：不经过任何节点", "Direct mode: no node is used")
+		case r.ID == "default" && r.Direct && s.Imported == nil:
+			note = i18n.T("没命中规则的流量直接连接 · 在 bowel 里可以改", "Traffic no rule matches goes direct · Change it in bowel")
 		case len(s.Nodes) == 0:
 			note = i18n.T("还没有节点 · 在 bowel 里添加提供商", "No nodes yet · Add a provider in bowel")
 		case r.Reject:
@@ -208,6 +215,9 @@ func (u *UI) panelNodes(c *ui.Context, p *pal) {
 		if note != "" {
 			ui.Text(c, note).FontSize(12.5).TextColor(p.mute).Margin(2, 10, 4, 10)
 			return
+		}
+		if seen {
+			ui.Text(c, i18n.T("只有代理指向 bowel 端口的应用经过 bowel", "Only apps pointed at bowel’s port go through it")).FontSize(11.5).TextColor(p.mute).Margin(2, 10, 4, 10)
 		}
 		u.panelNodeList(c, p, r)
 	})

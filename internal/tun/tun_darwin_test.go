@@ -58,7 +58,8 @@ func TestScripts(t *testing.T) {
 // Several steps run under one authorisation, joined by &&, each path
 // quoted on its own; the script compiles (nothing runs).
 func TestAdminScriptSteps(t *testing.T) {
-	s := adminScript("p", installStep("/a b/.t", "/a b/mihomo"), Step{"/bin/echo ", "/c'd"})
+	st, _ := installStep("/a b/.t", "/a b/mihomo")
+	s := adminScript("p", st, Step{"/bin/echo ", "/c'd"})
 	want := `do shell script "/usr/sbin/chown root:admin " & quoted form of "/a b/.t" & " && /bin/chmod 4755 " & quoted form of "/a b/.t" & " && /bin/mv -f " & quoted form of "/a b/.t" & " " & quoted form of "/a b/mihomo" & " && " & "/bin/echo " & quoted form of "/c'd" with prompt "p" with administrator privileges`
 	if s != want {
 		t.Fatalf("adminScript:\n got %s\nwant %s", s, want)

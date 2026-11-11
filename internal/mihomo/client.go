@@ -107,6 +107,7 @@ type Config struct {
 	MixedPort int    `json:"mixed-port"`
 	AllowLan  bool   `json:"allow-lan"`
 	LogLevel  string `json:"log-level"`
+	IPv6      bool   `json:"ipv6"`
 }
 
 func (c *Client) Config(ctx context.Context) (Config, error) {

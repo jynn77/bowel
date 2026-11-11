@@ -363,12 +363,15 @@ var pages = []struct{ id, zh, en string }{
 	{"routes", "路由组", "Routes"},
 }
 
+// titleBarHeight is how tall titleBar is; the pages have the rest of the window.
+func titleBarHeight(c *ui.Context) float32 { return max(c.TitleBar().Height, 50) }
+
 // titleBar: the window's controls, the tabs, what needs attention, and the
 // state on the right. No line under it. Its 50 is what app.go's
 // TrafficLightPosition gives, so the controls center with the tabs.
 func (u *UI) titleBar(c *ui.Context, p *pal) {
 	bar := c.TitleBar()
-	ui.Row(c).Height(max(bar.Height, 50)).Padding(0, bar.Right+16, 0, bar.Left+14).Gap(16).AlignItems(ui.Center).DragWindow().Children(func() {
+	ui.Row(c).Height(titleBarHeight(c)).Padding(0, bar.Right+16, 0, bar.Left+14).Gap(16).AlignItems(ui.Center).DragWindow().Children(func() {
 		ui.Row(c).Gap(2).Padding(3).Radius(p.r(10)).Background(p.hair2).Shrink(0).Children(func() {
 			for _, pg := range pages {
 				id := pg.id
@@ -592,6 +595,43 @@ func btn(c *ui.Context, p *pal, label string) ui.Element {
 	return b.Children(func() { ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(p.ink).NoWrap() })
 }
 
+// chevron is the mark of something that opens: a small drawn V, pointing
+// down while it is shut and up while it is open. Both are the one shape
+// mirrored, so they are the same size in the same place; the font's two
+// small triangles are not (the up one is drawn smaller).
+func chevron(c *ui.Context, col ui.Color, up bool) ui.Element {
+	return ui.Box(c).Size(chevronW, chevronH).Shrink(0).AccessHidden(true).Draw(func(pt *ui.Painter, r ui.Rect) {
+		tip, ends := r.Y+r.H-chevronInset, r.Y+chevronInset
+		if up {
+			tip, ends = ends, tip
+		}
+		var path ui.Path
+		path.MoveTo(r.X+chevronInset, ends).LineTo(r.X+r.W/2, tip).LineTo(r.X+r.W-chevronInset, ends).Cap(ui.RoundCap)
+		pt.StrokePath(&path, 1.3, col)
+	})
+}
+
+// The chevron's box, and how far its stroke stays inside it so that the
+// round ends are not cut off.
+const (
+	chevronW     = 9
+	chevronH     = 6
+	chevronInset = 1
+)
+
+// btnChevron is btn with a chevron after its label: a button that opens
+// (down) or closes (up) what is under it.
+func btnChevron(c *ui.Context, p *pal, label string, up bool) ui.Element {
+	b := ui.ButtonBase(c).Row().Gap(5).AlignItems(ui.Center).Padding(5, 11).Radius(p.r(7)).Border(1, p.hair)
+	if b.Hovered() {
+		b.BorderColor(p.ink)
+	}
+	return b.Children(func() {
+		ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(p.ink).NoWrap()
+		chevron(c, p.ink, up)
+	})
+}
+
 // iconBtn is a bare glyph button (‹, ×) with a 32pt target and a hover
 // wash, so it is not just the few pixels of the glyph. Callers pull it
 // into place with negative margins where the glyph has to line up.
@@ -745,6 +785,14 @@ func (u *UI) providerName(id string) string {
 		}
 	}
 	return ""
+}
+
+// trafficSeen says whether bowel has traffic to show: a connection now, a
+// recent event, a connection the Log page still lists, or bytes in the
+// history the graph draws. It does not ask whether bowel has taken over:
+// an application pointed at the mixed port passes traffic either way.
+func (u *UI) trafficSeen() bool {
+	return u.tick.Active > 0 || len(u.tick.Events) > 0 || len(u.act.conns) > 0 || u.home.moved()
 }
 
 // active says whether a route carries traffic in the current mode.

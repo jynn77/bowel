@@ -15,7 +15,7 @@ cask "bowel" do
   url "https://github.com/21stware/bowel/releases/download/v#{version}/bowel-#{version}-arm64.dmg"
   name "bowel"
   desc "Desktop client for mihomo"
-  homepage "https://21stware.github.io/bowel/"
+  homepage "https://bowel.dev/"
 
   livecheck do
     url :url

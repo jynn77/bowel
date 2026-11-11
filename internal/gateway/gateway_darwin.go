@@ -39,6 +39,13 @@ type darwin struct {
 	firewall bool
 }
 
+// Supported says whether this system can be made a gateway.
+func Supported() bool { return true }
+
+// onLAN says whether an interface can be on the LAN, which on macOS its
+// name tells.
+func onLAN(name string) bool { return physical(name) }
+
 const sysctlName = "net.inet.ip.forwarding"
 
 func (d *darwin) Forwarding() (bool, error) {

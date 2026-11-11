@@ -127,6 +127,103 @@ var (
 	}
 )
 
+// The second set: 山水 and 暮色, then 青瓷, 敦煌, 极光, 黑曜 and 孔版.
+var (
+	shanshuiLight = pal{
+		paper: ui.Hex("#f1eee4"), paper2: ui.Hex("#e9e5d9"), card: ui.Hex("#f7f5ed"), sheet: ui.Hex("#faf8f1"),
+		ink: ui.Hex("#1a1a18"), ink2: ui.Hex("#3d3d39"), mute: ui.Hex("#85837a"), faint: ui.Hex("#c2bfb3"),
+		hair: ui.RGBA(26, 26, 24, .13), hair2: ui.RGBA(26, 26, 24, .065), hover: ui.RGBA(26, 26, 24, .035),
+		signal: ui.Hex("#c8372d"), good: ui.Hex("#3f8468"), warn: ui.Hex("#a67c1a"),
+		route: map[string]ui.Color{"default": ui.Hex("#3a5f8a"), "ai": ui.Hex("#6f5a8c"), "media": ui.Hex("#b5495b"), "dev": ui.Hex("#3f8f7a"), "direct": ui.Hex("#96948a")},
+		font:  sans, display: faceSerif, round: .8, deco: decoShanshui,
+	}
+	shanshuiDark = pal{
+		dark:  true,
+		paper: ui.Hex("#121413"), paper2: ui.Hex("#171918"), card: ui.Hex("#1b1d1c"), sheet: ui.Hex("#202322"),
+		ink: ui.Hex("#ebe8de"), ink2: ui.Hex("#c8c5ba"), mute: ui.Hex("#86857c"), faint: ui.Hex("#454743"),
+		hair: ui.RGBA(235, 232, 222, .13), hair2: ui.RGBA(235, 232, 222, .065), hover: ui.RGBA(235, 232, 222, .04),
+		signal: ui.Hex("#e85a4c"), good: ui.Hex("#6dbb99"), warn: ui.Hex("#d9ad4c"),
+		route: map[string]ui.Color{"default": ui.Hex("#7fa3d1"), "ai": ui.Hex("#a995cc"), "media": ui.Hex("#e0808f"), "dev": ui.Hex("#6fc4ad"), "direct": ui.Hex("#7a7a72")},
+		font:  sans, display: faceSerif, round: .8, deco: decoShanshui,
+	}
+	duskPal = pal{
+		dark:  true,
+		paper: ui.Hex("#15132b"), paper2: ui.Hex("#1a1733"), card: ui.Hex("#1f1b3a"), sheet: ui.Hex("#252043"),
+		ink: ui.Hex("#f7efe9"), ink2: ui.Hex("#d6c9cf"), mute: ui.Hex("#9486a3"), faint: ui.Hex("#453c63"),
+		hair: ui.RGBA(255, 225, 215, .15), hair2: ui.RGBA(255, 225, 215, .075), hover: ui.RGBA(255, 225, 215, .05),
+		signal: ui.Hex("#ff6b6b"), good: ui.Hex("#7fe0b0"), warn: ui.Hex("#ffc66b"),
+		route: map[string]ui.Color{"default": ui.Hex("#8fb0ff"), "ai": ui.Hex("#c9a0ff"), "media": ui.Hex("#ff8fb0"), "dev": ui.Hex("#6fe0d0"), "direct": ui.Hex("#7d7296")},
+		font:  sans, display: faceSerif, round: 1.2, deco: decoDusk,
+	}
+)
+
+var (
+	celadonLight = pal{
+		paper: ui.Hex("#e8efe8"), paper2: ui.Hex("#dee7de"), card: ui.Hex("#f1f6f0"), sheet: ui.Hex("#f6faf5"),
+		ink: ui.Hex("#14231d"), ink2: ui.Hex("#33483f"), mute: ui.Hex("#6c8277"), faint: ui.Hex("#b3c4b8"),
+		hair: ui.RGBA(20, 35, 29, .13), hair2: ui.RGBA(20, 35, 29, .065), hover: ui.RGBA(20, 35, 29, .035),
+		signal: ui.Hex("#c4452f"), good: ui.Hex("#2f8a5c"), warn: ui.Hex("#b9801a"),
+		route: map[string]ui.Color{"default": ui.Hex("#2f6f9e"), "ai": ui.Hex("#7a5aa8"), "media": ui.Hex("#c4567a"), "dev": ui.Hex("#1f8f86"), "direct": ui.Hex("#8d9b92")},
+		font:  sans, display: faceSerif, round: 1.25, deco: decoCeladon,
+	}
+	celadonDark = pal{
+		dark:  true,
+		paper: ui.Hex("#0f1a17"), paper2: ui.Hex("#13201c"), card: ui.Hex("#172621"), sheet: ui.Hex("#1b2c26"),
+		ink: ui.Hex("#e4f0e9"), ink2: ui.Hex("#bcd0c5"), mute: ui.Hex("#7d968a"), faint: ui.Hex("#3b5148"),
+		hair: ui.RGBA(200, 235, 215, .13), hair2: ui.RGBA(200, 235, 215, .065), hover: ui.RGBA(200, 235, 215, .04),
+		signal: ui.Hex("#f0705a"), good: ui.Hex("#5fcf98"), warn: ui.Hex("#e6b04e"),
+		route: map[string]ui.Color{"default": ui.Hex("#6fb0dc"), "ai": ui.Hex("#b094dc"), "media": ui.Hex("#ee88a8"), "dev": ui.Hex("#4fd0c2"), "direct": ui.Hex("#6f857a")},
+		font:  sans, display: faceSerif, round: 1.25, deco: decoCeladon,
+	}
+
+	dunhuangLight = pal{
+		paper: ui.Hex("#ead9bb"), paper2: ui.Hex("#e2cfae"), card: ui.Hex("#f1e3c8"), sheet: ui.Hex("#f5e9d2"),
+		ink: ui.Hex("#2a1a12"), ink2: ui.Hex("#4d3526"), mute: ui.Hex("#876c54"), faint: ui.Hex("#c4ad8a"),
+		hair: ui.RGBA(42, 26, 18, .18), hair2: ui.RGBA(42, 26, 18, .085), hover: ui.RGBA(42, 26, 18, .04),
+		signal: ui.Hex("#b8321f"), good: ui.Hex("#2f7a5e"), warn: ui.Hex("#b0700c"),
+		route: map[string]ui.Color{"default": ui.Hex("#24528f"), "ai": ui.Hex("#7a4a8a"), "media": ui.Hex("#c2513a"), "dev": ui.Hex("#1f7f72"), "direct": ui.Hex("#96826a")},
+		font:  sans, display: faceSerif, round: .6, deco: decoDunhuang,
+	}
+	dunhuangDark = pal{
+		dark:  true,
+		paper: ui.Hex("#1c1410"), paper2: ui.Hex("#231914"), card: ui.Hex("#291d17"), sheet: ui.Hex("#30231b"),
+		ink: ui.Hex("#f0dfc0"), ink2: ui.Hex("#d2bd99"), mute: ui.Hex("#97826a"), faint: ui.Hex("#54433a"),
+		hair: ui.RGBA(240, 223, 192, .16), hair2: ui.RGBA(240, 223, 192, .075), hover: ui.RGBA(240, 223, 192, .04),
+		signal: ui.Hex("#e8604a"), good: ui.Hex("#5fbf9c"), warn: ui.Hex("#e6aa48"),
+		route: map[string]ui.Color{"default": ui.Hex("#6f9be0"), "ai": ui.Hex("#b98acb"), "media": ui.Hex("#ee7a62"), "dev": ui.Hex("#4fc4b0"), "direct": ui.Hex("#86735f")},
+		font:  sans, display: faceSerif, round: .6, deco: decoDunhuang,
+	}
+
+	auroraPal = pal{
+		dark:  true,
+		paper: ui.Hex("#0a1220"), paper2: ui.Hex("#0e1828"), card: ui.Hex("#111d30"), sheet: ui.Hex("#152338"),
+		ink: ui.Hex("#e8f1fb"), ink2: ui.Hex("#bccbdf"), mute: ui.Hex("#7389a6"), faint: ui.Hex("#2f405a"),
+		hair: ui.RGBA(180, 215, 255, .15), hair2: ui.RGBA(180, 215, 255, .075), hover: ui.RGBA(180, 215, 255, .05),
+		signal: ui.Hex("#ff6b7a"), good: ui.Hex("#5ff0b0"), warn: ui.Hex("#ffcf6b"),
+		route: map[string]ui.Color{"default": ui.Hex("#6cb6ff"), "ai": ui.Hex("#b79cff"), "media": ui.Hex("#ff8fc0"), "dev": ui.Hex("#4ff0d0"), "direct": ui.Hex("#5f7391")},
+		font:  sans, display: faceDIN, round: 1.1, glow: ui.RGBA(95, 240, 176, .28), deco: decoAurora,
+	}
+
+	obsidianPal = pal{
+		dark:  true,
+		paper: ui.Hex("#050505"), paper2: ui.Hex("#0a0a0a"), card: ui.Hex("#0f0f0e"), sheet: ui.Hex("#151514"),
+		ink: ui.Hex("#f5f5f2"), ink2: ui.Hex("#c9c9c4"), mute: ui.Hex("#7c7c77"), faint: ui.Hex("#3a3a37"),
+		hair: ui.RGBA(255, 255, 255, .14), hair2: ui.RGBA(255, 255, 255, .07), hover: ui.RGBA(255, 255, 255, .05),
+		signal: ui.Hex("#ff4d3d"), good: ui.Hex("#3ddc84"), warn: ui.Hex("#ffb020"),
+		route: map[string]ui.Color{"default": ui.Hex("#5b9dff"), "ai": ui.Hex("#b18cff"), "media": ui.Hex("#ff6fa0"), "dev": ui.Hex("#2ad4d4"), "direct": ui.Hex("#6a6a66")},
+		font:  sans, display: faceDIN, round: .5, deco: decoObsidian,
+	}
+
+	risoPal = pal{
+		paper: ui.Hex("#f4efe3"), paper2: ui.Hex("#ebe5d6"), card: ui.Hex("#faf6ec"), sheet: ui.Hex("#fdfaf2"),
+		ink: ui.Hex("#1b2466"), ink2: ui.Hex("#3a4388"), mute: ui.Hex("#7c83ad"), faint: ui.Hex("#c3c6da"),
+		hair: ui.RGBA(27, 36, 102, .18), hair2: ui.RGBA(27, 36, 102, .085), hover: ui.RGBA(27, 36, 102, .04),
+		signal: ui.Hex("#f0425a"), good: ui.Hex("#1f9d6b"), warn: ui.Hex("#d99200"),
+		route: map[string]ui.Color{"default": ui.Hex("#2b46d6"), "ai": ui.Hex("#8a3fd1"), "media": ui.Hex("#ff48a0"), "dev": ui.Hex("#00a39a"), "direct": ui.Hex("#9a9fbd")},
+		font:  sans, display: faceFutura, round: .8, deco: decoRiso,
+	}
+)
+
 // skins are the looks to pick, in settings.Skins' order; the first is the
 // default.
 var skins = []skin{
@@ -142,6 +239,20 @@ var skins = []skin{
 		dark: &blueprintPal, accent: "#FFD166"},
 	{id: "sakura", zh: "樱", en: "Sakura", noteZh: "樱花粉、圆润的角与飘落的花瓣", noteEn: "Blossom pink, soft corners and falling petals",
 		light: &sakuraLight, dark: &sakuraDark, accent: "#E45A8A"},
+	{id: "shanshui", zh: "山水", en: "Shanshui", noteZh: "宣纸、宋体与一方朱印，远山在雾里", noteEn: "Rice paper, serif type and a red seal, hills in the mist",
+		light: &shanshuiLight, dark: &shanshuiDark, accent: "#C8372D"},
+	{id: "celadon", zh: "青瓷", en: "Celadon", noteZh: "粉青釉色、衬线标题与细细的开片", noteEn: "Pale green glaze, serif headlines and a fine crackle",
+		light: &celadonLight, dark: &celadonDark, accent: "#3E9C82"},
+	{id: "dunhuang", zh: "敦煌", en: "Dunhuang", noteZh: "壁画的土黄、石青、石绿与朱砂", noteEn: "A mural's ochre, azurite, malachite and cinnabar",
+		light: &dunhuangLight, dark: &dunhuangDark, accent: "#1E8573"},
+	{id: "dusk", zh: "暮色", en: "Dusk", noteZh: "靛蓝的天沉向一线暖光", noteEn: "An indigo sky sinking to a line of warm light",
+		dark: &duskPal, accent: "#FF9E7A"},
+	{id: "aurora", zh: "极光", en: "Aurora", noteZh: "极夜深蓝上垂下的绿与紫，几点星", noteEn: "Curtains of green and violet over a polar night, and a few stars",
+		dark: &auroraPal, accent: "#5FF0B0"},
+	{id: "obsidian", zh: "黑曜", en: "Obsidian", noteZh: "纯黑、细线与一点余烬的橙", noteEn: "True black, hairlines and one ember of orange",
+		dark: &obsidianPal, accent: "#FF7A1A"},
+	{id: "riso", zh: "孔版", en: "Riso", noteZh: "孔版印刷：蓝墨、荧光粉与网点", noteEn: "Risograph: blue ink, fluorescent pink and halftone dots",
+		light: &risoPal, accent: "#FF48A0"},
 }
 
 func skinByID(id string) *skin {
@@ -372,4 +483,195 @@ func petal(pt *ui.Painter, x, y, size, angle float32, col ui.Color) {
 	path.CubeTo(c3x, c3y, c4x, c4y, ox, oy)
 	path.Close()
 	pt.FillPath(&path, col)
+}
+
+// decoDunhuang: plaster's grain and its worn patches, the pigments'
+// light from two corners, the edges browned.
+func decoDunhuang(pt *ui.Painter, r ui.Rect, p *pal) {
+	big := max(r.W, r.H)
+	speck := p.ink.Alpha(map[bool]float32{false: .08, true: .05}[p.dark])
+	q := pt.Scale()
+	n := int(r.W * r.H / 420)
+	for i := 0; i < n; i++ {
+		x, y := r.X+hash(2*i)*r.W, r.Y+hash(2*i+1)*r.H
+		s := 1 / q * float32(1+int(hash(i+7)*2))
+		pt.Fill(ui.Rect{X: x, Y: y, W: s, H: s}, speck, 0)
+	}
+	patch, pa := ui.Hex("#fff6dc"), float32(.16)
+	if p.dark {
+		patch, pa = ui.Hex("#8a5a2e"), .07
+	}
+	m := int(r.W * r.H / 45000)
+	for i := 0; i < m; i++ {
+		glowAt(pt, r.X+hash(3*i+100)*r.W, r.Y+hash(3*i+101)*r.H, 30+hash(3*i+102)*70, patch, pa)
+	}
+	glowAt(pt, r.X+r.W, r.Y+r.H, big*.5, p.route["default"], .07)
+	glowAt(pt, r.X, r.Y, big*.45, p.signal, .06)
+	vignette(pt, r, ui.Hex("#4a2a10"), map[bool]float32{false: .16, true: .32}[p.dark])
+}
+
+// decoCeladon: the glaze, thin and bright where the light falls, pooled
+// deeper at the edges, and its crackle.
+func decoCeladon(pt *ui.Painter, r ui.Rect, p *pal) {
+	big := max(r.W, r.H)
+	if p.dark {
+		glowAt(pt, r.X+r.W*.12, r.Y, big*.6, ui.Hex("#7fe0c0"), .08)
+		vignette(pt, r, ui.Hex("#020806"), .45)
+	} else {
+		glowAt(pt, r.X+r.W*.12, r.Y, big*.6, ui.Hex("#ffffff"), .45)
+		vignette(pt, r, ui.Hex("#3f9478"), .16)
+	}
+	line := p.ink.Alpha(.07)
+	w := 1 / pt.Scale()
+	n := int(r.W * r.H / 20000)
+	for i := 0; i < n; i++ {
+		x, y := r.X+hash(5*i)*r.W, r.Y+hash(5*i+1)*r.H
+		ang := hash(5*i+2) * math.Pi * 2
+		pts := [][2]float32{{x, y}}
+		for j := 0; j < 6; j++ {
+			ang += (hash(5*i+3+j*13) - .5) * 1.7
+			l := 22 + hash(5*i+4+j*29)*46
+			x += l * float32(math.Cos(float64(ang)))
+			y += l * float32(math.Sin(float64(ang)))
+			pts = append(pts, [2]float32{x, y})
+		}
+		pt.StrokePolyline(pts, w, line)
+	}
+}
+
+// decoAurora: curtains of light hanging from the top, rays in each, and
+// stars.
+func decoAurora(pt *ui.Painter, r ui.Rect, p *pal) {
+	cols := []ui.Color{p.good, p.route["dev"], p.route["ai"]}
+	const step = 3
+	for k, col := range cols {
+		fk := float64(k)
+		for x := float32(0); x < r.W; x += step {
+			f := float64(x / r.W)
+			// Where the curtain hangs, and how bright this ray of it is.
+			top := r.H * float32(.03+.05*fk+.05*math.Sin(f*5.5+fk*2.1))
+			fold := .5 + .5*math.Sin(f*9+fk*1.7+2*math.Sin(f*4+fk))
+			ray := .6 + .4*math.Sin(f*140+fk*3+6*math.Sin(f*17))
+			a := float32(fold * fold * ray * (.15 - .03*fk))
+			h := r.H * float32(.16+.2*fold)
+			pt.FillGradient(ui.Rect{X: r.X + x, Y: r.Y + top, W: step, H: h}, ui.LinearGradient{Angle: 180, Stops: []ui.GradientStop{
+				{Color: col.Alpha(0), At: 0}, {Color: col.Alpha(a), At: .18}, {Color: col.Alpha(a * .35), At: .55}, {Color: col.Alpha(0), At: 1},
+			}}, 0)
+		}
+	}
+	q := pt.Scale()
+	n := int(r.W * r.H / 7000)
+	for i := 0; i < n; i++ {
+		v := hash(3*i + 1)
+		x, y := r.X+hash(3*i)*r.W, r.Y+v*v*r.H
+		s := 1 / q * float32(1+int(hash(3*i+2)*2.2))
+		pt.Fill(ui.Rect{X: x, Y: y, W: s, H: s}, p.ink.Alpha(.18+.3*hash(i+5)*(1-v)), s/2)
+	}
+	vignette(pt, r, ui.Hex("#02060c"), .4)
+}
+
+// decoObsidian: two facets catching light, and an ember at the bottom
+// left.
+func decoObsidian(pt *ui.Painter, r ui.Rect, p *pal) {
+	white := ui.Hex("#ffffff")
+	var a, b ui.Path
+	a.MoveTo(r.X+r.W*.52, r.Y)
+	a.LineTo(r.X+r.W, r.Y)
+	a.LineTo(r.X+r.W, r.Y+r.H*.62)
+	a.Close()
+	pt.FillPathGradient(&a, ui.LinearGradient{From: white.Alpha(.055), To: white.Alpha(.01), Angle: 225})
+	pt.StrokePolyline([][2]float32{{r.X + r.W*.52, r.Y}, {r.X + r.W, r.Y + r.H*.62}}, 1, white.Alpha(.08))
+	b.MoveTo(r.X, r.Y+r.H*.45)
+	b.LineTo(r.X+r.W*.42, r.Y+r.H)
+	b.LineTo(r.X, r.Y+r.H)
+	b.Close()
+	pt.FillPathGradient(&b, ui.LinearGradient{From: white.Alpha(.03), To: white.Alpha(.005), Angle: 180})
+	pt.StrokePolyline([][2]float32{{r.X, r.Y + r.H*.45}, {r.X + r.W*.42, r.Y + r.H}}, 1, white.Alpha(.05))
+	glowAt(pt, r.X+r.W*.04, r.Y+r.H*1.04, max(r.W, r.H)*.42, ui.Hex("#ff7a1a"), .15)
+}
+
+// decoRiso: halftone dots from the two bottom corners, pink and blue,
+// thinning as they go.
+func decoRiso(pt *ui.Painter, r ui.Rect, p *pal) {
+	const pitch = 9
+	dots := func(cx, cy, reach float32, col ui.Color) {
+		for gy := 0; float32(gy)*pitch < r.H; gy++ {
+			for gx := 0; float32(gx)*pitch < r.W; gx++ {
+				x := r.X + float32(gx)*pitch + float32(gy%2)*pitch/2
+				y := r.Y + float32(gy)*pitch
+				d := float32(math.Hypot(float64(x-cx), float64(y-cy))) / reach
+				if d >= 1 {
+					continue
+				}
+				s := (1 - d) * (1 - d) * 6.5
+				if s < .6 {
+					continue
+				}
+				pt.Fill(ui.Rect{X: x - s/2, Y: y - s/2, W: s, H: s}, col, s/2)
+			}
+		}
+	}
+	dots(r.X+r.W, r.Y+r.H, min(r.W, r.H)*.4, p.route["media"].Alpha(.26))
+	dots(r.X, r.Y+r.H, min(r.W, r.H)*.36, p.route["default"].Alpha(.2))
+}
+
+// decoShanshui: ranges of hills along the bottom, each nearer one darker,
+// each fading into the mist below it; and the paper's fibers.
+func decoShanshui(pt *ui.Painter, r ui.Rect, p *pal) {
+	wash := p.ink
+	w := 1 / pt.Scale()
+	n := int(r.W * r.H / 9000)
+	for i := 0; i < n; i++ {
+		x, y := r.X+hash(4*i)*r.W, r.Y+hash(4*i+1)*r.H
+		ang := float64(hash(4*i+2)) * math.Pi
+		l := 6 + hash(4*i+3)*14
+		pt.Line(x, y, x+l*float32(math.Cos(ang)), y+l*float32(math.Sin(ang)), w, wash.Alpha(.035))
+	}
+	const layers = 4
+	for k := 0; k < layers; k++ {
+		fk := float64(k)
+		base := r.Y + r.H*float32(.60+.085*fk)
+		amp := r.H * float32(.085-.008*fk)
+		var path ui.Path
+		path.MoveTo(r.X, r.Y+r.H)
+		top := r.Y + r.H
+		for x := float32(0); x <= r.W+4; x += 4 {
+			f := float64(x/r.W)*(1.6+.5*fk) + fk*3.7
+			h := .55*math.Sin(f*2.1+1.3*fk) + .28*math.Sin(f*5.3+fk) + .12*math.Sin(f*11.7+2*fk) + .05*math.Sin(f*29)
+			// Peaks, not waves: sharpen the crests.
+			h = math.Copysign(math.Pow(math.Abs(h), .8), h)
+			y := base - amp*float32(h)
+			top = min(top, y)
+			path.LineTo(r.X+x, y)
+		}
+		path.LineTo(r.X+r.W, r.Y+r.H)
+		path.Close()
+		a := float32(.05 + .028*fk)
+		if p.dark {
+			a *= .8
+		}
+		// The gradient runs over the path's own box, top to bottom.
+		pt.FillPathGradient(&path, ui.LinearGradient{Angle: 180, Stops: []ui.GradientStop{
+			{Color: wash.Alpha(a), At: 0}, {Color: wash.Alpha(a * .5), At: .35}, {Color: wash.Alpha(0), At: .8},
+		}})
+	}
+}
+
+// decoDusk: the sky's last light: warm along the bottom, rose above it,
+// the sun just under the edge.
+func decoDusk(pt *ui.Painter, r ui.Rect, p *pal) {
+	rose, amber := ui.Hex("#ff5f8f"), ui.Hex("#ffb060")
+	pt.FillGradient(r, ui.LinearGradient{Angle: 180, Oklab: true, Stops: []ui.GradientStop{
+		{Color: rose.Alpha(0), At: 0}, {Color: rose.Alpha(0), At: .35}, {Color: rose.Alpha(.1), At: .75}, {Color: amber.Alpha(.2), At: 1},
+	}}, 0)
+	glowAt(pt, r.X+r.W*.3, r.Y+r.H*1.12, max(r.W, r.H)*.55, amber, .22)
+	glowAt(pt, r.X+r.W*.85, r.Y, max(r.W, r.H)*.4, ui.Hex("#5a6bff"), .1)
+	q := pt.Scale()
+	n := int(r.W * r.H / 11000)
+	for i := 0; i < n; i++ {
+		v := hash(3*i + 1)
+		x, y := r.X+hash(3*i)*r.W, r.Y+v*v*r.H*.6
+		s := 1 / q * float32(1+int(hash(3*i+2)*2.2))
+		pt.Fill(ui.Rect{X: x, Y: y, W: s, H: s}, p.ink.Alpha(.15+.3*hash(i+5)*(1-v)), s/2)
+	}
 }

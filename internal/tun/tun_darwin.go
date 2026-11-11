@@ -1,13 +1,8 @@
-// Package tun installs the core so that it can open a TUN device: mihomo
-// needs root for that, so Moho keeps a copy of the core in a user directory
-// made setuid root after an administrator's authorisation (as Clash Verge
-// does).
 package tun
 
 import (
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -18,24 +13,9 @@ import (
 	"github.com/oboo/moho/internal/i18n"
 )
 
-// Reset has nothing to do here: this Mac's utun device, its address and the
-// routes sing-tun added all go when the core closes TUN, and the core is
-// always asked to close it (SIGTERM, which it answers).
-func Reset() error { return nil }
-
-// ErrCanceled is returned by Install and Uninstall when the user dismissed
-// the administrator prompt.
-var ErrCanceled error = canceled{}
-
-// canceled says it in the interface's language when it is said.
-type canceled struct{}
-
-func (canceled) Error() string {
-	return i18n.T("用户取消了授权", "The authorization was canceled")
-}
-
-// prompt is shown in the administrator authorisation dialog.
-const prompt = "bowel 需要授权以启用 TUN 模式"
+// Path is where the copy of the core that TUN runs on is kept: in the
+// user's data directory, which needs no rights to replace or remove.
+func Path(data, name string) string { return filepath.Join(data, "bin", name) }
 
 // Installed reports whether path is a regular file owned by root with the
 // setuid bit.
@@ -46,60 +26,6 @@ func Installed(path string) bool {
 	}
 	st, ok := fi.Sys().(*syscall.Stat_t)
 	return ok && st.Uid == 0
-}
-
-// Install copies src to dst (creating dst's directory), then asks for an
-// administrator's authorisation through osascript to chown root:admin and
-// chmod 4755 it. It returns ErrCanceled when the user canceled.
-func Install(src, dst string) error {
-	step, err := InstallStep(src, dst)
-	if err != nil {
-		return err
-	}
-	if err := Admin(Prompt(), step); err != nil {
-		_ = os.Remove(step[1]) // the copy; dst is as it was
-		return err
-	}
-	return nil
-}
-
-// InstallStep copies src to dst as Install does and returns what is left
-// to do as root, for Admin to run together with other steps under one
-// authorisation.
-func InstallStep(src, dst string) (Step, error) {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return nil, err
-	}
-	// What an authorization that was refused left behind.
-	if old, err := filepath.Glob(filepath.Join(filepath.Dir(dst), ".mihomo-*")); err == nil {
-		for _, p := range old {
-			_ = os.Remove(p)
-		}
-	}
-	// A copy beside dst, which becomes dst only once it is root's: dst may
-	// be the copy TUN runs on now, and must outlive a refused authorization.
-	tmp, err := copyTemp(src, filepath.Dir(dst))
-	if err != nil {
-		return nil, err
-	}
-	return installStep(tmp, dst), nil
-}
-
-// Step is one shell command run as root: its parts alternate between
-// literal text and paths, which the shell sees as one word each.
-type Step []string
-
-// Prompt is what the administrator dialog says for TUN alone.
-func Prompt() string { return i18n.T(prompt, "bowel needs authorization to turn on TUN mode") }
-
-// Admin runs the steps, one after the other and stopping at the first
-// that fails, as root under a single administrator authorisation; the
-// dialog shows prompt. It returns ErrCanceled when the user canceled.
-func Admin(prompt string, steps ...Step) error {
-	if len(steps) == 0 {
-		return nil
-	}
-	return runAdmin(adminScript(prompt, steps...))
 }
 
 // Uninstall removes dst. A root-owned file in a directory of the user's can
@@ -113,32 +39,13 @@ func Uninstall(dst string) error {
 	if !errors.Is(err, fs.ErrPermission) {
 		return err
 	}
-	return runAdmin(uninstallScript(dst))
+	return runScript(uninstallScript(dst))
 }
 
-func copyTemp(src, dir string) (string, error) {
-	in, err := os.Open(src)
-	if err != nil {
-		return "", err
-	}
-	defer in.Close()
-	out, err := os.CreateTemp(dir, ".mihomo-*")
-	if err != nil {
-		return "", err
-	}
-	_, err = io.Copy(out, in)
-	if cerr := out.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil {
-		err = os.Chmod(out.Name(), 0o755)
-	}
-	if err != nil {
-		_ = os.Remove(out.Name())
-		return "", err
-	}
-	return out.Name(), nil
-}
+// stageDir is where the copy waits for the authorisation: beside dst.
+func stageDir(dst string) string { return filepath.Dir(dst) }
+
+func checkDir(string) error { return nil }
 
 // appleString quotes s as an AppleScript string literal.
 func appleString(s string) string {
@@ -169,17 +76,22 @@ func adminScript(prompt string, steps ...Step) string {
 	return "do shell script " + strings.Join(exprs, ` & " && " & `) + " with prompt " + appleString(prompt) + " with administrator privileges"
 }
 
-func installStep(tmp, dst string) Step {
-	return Step{"/usr/sbin/chown root:admin ", tmp, " && /bin/chmod 4755 ", tmp, " && /bin/mv -f ", tmp, " ", dst}
+func installStep(tmp, dst string) (Step, error) {
+	return Step{"/usr/sbin/chown root:admin ", tmp, " && /bin/chmod 4755 ", tmp, " && /bin/mv -f ", tmp, " ", dst}, nil
 }
 
-func installScript(tmp, dst string) string { return adminScript(Prompt(), installStep(tmp, dst)) }
+func installScript(tmp, dst string) string {
+	st, _ := installStep(tmp, dst)
+	return adminScript(Prompt(), st)
+}
 
 func uninstallScript(dst string) string {
 	return adminScript(Prompt(), Step{"/bin/rm -f ", dst})
 }
 
-func runAdmin(script string) error {
+func runAdmin(prompt string, steps []Step) error { return runScript(adminScript(prompt, steps...)) }
+
+func runScript(script string) error {
 	out, err := exec.Command("/usr/bin/osascript", "-e", script).CombinedOutput()
 	if err == nil {
 		return nil

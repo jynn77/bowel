@@ -200,6 +200,25 @@ canvas.spark { width: 100%; height: 44px; display: block; margin-top: 10px; }
 .rlist .rr { display: grid; grid-template-columns: 10px 90px 1fr 190px 70px 60px 14px; gap: 14px; align-items: center; padding: 11px 6px; border-bottom: 1px solid var(--hair-2); border-radius: 6px; }
 .rlist .rr:hover { background: var(--hover); }
 .rr .rn { font: 700 16px var(--serif); }
+/* Matching is in series: one line down through the groups' swatches, thinner as each takes its share, ending in the last row. Rows have a fixed height so the line needs no measuring. */
+.rmatch { position: relative; }
+.rmatch-line { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; z-index: 1; }
+.rblock .rr, .rlist .rr.rr-other { height: 54px; padding-top: 0; padding-bottom: 0; }
+.rmatch .rr > .sw { position: relative; z-index: 2; box-shadow: 0 0 0 3px var(--sheet); }
+.rmatch .rr-other > .sw { box-shadow: 0 0 0 3px var(--card); }
+.rdrop { display: flex; align-items: center; height: 33px; padding-left: 30px; font-size: 11px; font-weight: 600; color: var(--mute); }
+.rlist .rr.rr-other { background: var(--card); box-shadow: inset 0 0 0 1px var(--hair); border-bottom: 0; }
+.ox { display: grid; gap: 10px; margin-bottom: 14px; }
+.ox-flow { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 14px; padding: 10px 13px; border-radius: 8px; background: var(--hair-2); font-size: 12px; color: var(--mute); }
+.ox-flow span:nth-child(even) { color: var(--ink-2); }
+.ox-flow b { color: var(--ink); font-weight: 600; }
+.ox-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ox-opt { display: grid; gap: 1px; padding: 9px 12px; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--hair); }
+.ox-opt:hover { background: var(--hover); }
+.ox-opt.on { box-shadow: inset 0 0 0 1.5px var(--ink); }
+.ox-opt b { font-size: 13.5px; }
+.ox-opt span { font-size: 11.5px; color: var(--mute); }
+.ox-note { padding: 9px 12px; border-radius: 8px; font-size: 12px; color: var(--ink-2); background: color-mix(in srgb, var(--warn) 13%, transparent); }
 .rr .rules { font-size: 12px; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rr .ex { font-weight: 600; }
 .big-chart { width: 100%; height: 170px; display: block; margin-top: 12px; }
@@ -458,11 +477,11 @@ const PROVIDERS = [
   { id: "e", name: "公司内网.yaml", kind: "本地文件", url: "~/Documents/office.yaml", off: true, extra: 3 },
 ];
 const ROUTES = [
-  { id: "default", name: "默认", color: "--r-default", node: "hk3", auto: true, share: .31, rules: "没命中其他规则的流量", nrules: 1 },
   { id: "ai", name: "AI 服务", color: "--r-ai", node: "la", auto: false, share: .08, rules: "openai.com · anthropic.com · gemini.google.com 等", nrules: 12 },
   { id: "media", name: "流媒体", color: "--r-media", node: "sg1", auto: false, share: .52, rules: "YouTube · Netflix · Spotify · Disney+ 等", nrules: 24 },
   { id: "dev", name: "开发", color: "--r-dev", node: "jp1", auto: true, share: .04, rules: "github.com · npmjs.org · docker.io 等", nrules: 9 },
   { id: "direct", name: "直连", color: "--r-direct", direct: true, share: .05, rules: "国内网站 · 局域网 · Apple 服务", nrules: 3 },
+  { id: "default", name: "其他流量", color: "--r-default", node: "hk3", auto: true, share: .31, rules: "没命中任何规则的流量", nrules: 1, get direct() { return S.otherDirect && S.mode !== "global"; } },
 ];
 const APPS = [["Arc", "youtube.com", "media", 1.21e6, 18], ["Claude", "api.anthropic.com", "ai", 8.4e4, 4], ["Docker", "docker.io", "dev", 2.1e5, 6], ["Slack", "slack.com", "default", 1.2e4, 3], ["WeChat", "weixin.qq.com", "direct", 9e3, 11], ["git", "github.com", "dev", 4e3, 2], ["Spotify", "spotify.com", "media", 4.1e4, 2]];
 const C = (id, app, host, ip, port, net, rule, payload, route, status, rate, dl, ul, dur, proc) => ({ id, app, host, ip, port, net, rule, payload, route, status, rate, dl, ul, dur, proc });
@@ -486,7 +505,7 @@ const LOGS = [
   ["19:24:11", "i", "[TCP] Claude → api.anthropic.com:443 命中 DOMAIN-SUFFIX(anthropic.com) → AI 服务[洛杉矶 VPS]"],
   ["19:24:12", "w", "东京 02 健康检查超时（连续第 3 次）"],
   ["19:24:12", "e", "[TCP] Arc → x.com:443 拨号失败：东京 02 i/o timeout"],
-  ["19:24:13", "i", "默认 自动切换：东京 02 → 香港 03 IPLC（41 ms）"],
+  ["19:24:13", "i", "其他流量 自动切换：东京 02 → 香港 03 IPLC（41 ms）"],
   ["19:24:14", "d", "[DNS] x.com → 104.244.42.1（fake-ip 198.18.0.42）"],
   ["19:24:15", "i", "[TCP] git → github.com:22 命中 DOMAIN-SUFFIX(github.com) → 开发[东京 01]"],
   ["19:24:20", "i", "Provider「机场 A」已更新：42 个节点（+2）"],
@@ -496,7 +515,7 @@ const EVENTS = [["Arc → googlevideo.com", "流媒体 · 新加坡 01"], ["Clau
 
 const S = {
   page: "home", state: "ok", mode: "rule", entries: { sys: true, tun: false }, tunInstalled: false, lan: false, dark: false,
-  pending: {}, x: null, sub: null, pendingNode: null,
+  pending: {}, x: null, sub: null, pendingNode: null, otherDirect: false,
   nd: { region: "all", q: "" },
   act: { tab: "conn", q: "", status: "active", route: "all", app: "all", net: "all", sort: ["rate", -1], paused: false, open: 8, armed: false, lv: "all" },
   prov: { open: "a" },
@@ -533,7 +552,7 @@ function apply(key, ms, fn) {
   setTimeout(() => { fn(); delete S.pending[key]; render(); }, ms);
 }
 const busy = (k) => !!S.pending[k];
-const exitNow = () => (!takeoverOn() || S.mode === "direct" ? null : node(route("default").node));
+const exitNow = () => (!takeoverOn() || S.mode === "direct" || route("default").direct ? null : node(route("default").node));
 
 // ==================================================================
 // Shell
@@ -705,9 +724,10 @@ const VIEWS = {
     let headline, deck;
     if (off) { headline = "未接管"; deck = `Moho 现在没有接管任何流量，所有应用都<b>直接连接</b>互联网。点「接管」选择一种方式。`; }
     else if (S.mode === "direct") { headline = "直接连接"; deck = `直连模式：所有流量<b>不经过任何节点</b>，规则暂停。适合排查网络问题。`; }
+    else if (r0.direct) { headline = "直接连接"; deck = `没命中规则的流量<b>不经过节点</b>，约占 <b>${Math.round(r0.share * 100)}%</b>。AI 服务、流媒体、开发仍走各自的节点。`; }
     else {
       headline = `<span class="flag">${flag(ex)}</span>${ex.name}`;
-      deck = `${locating ? `<span class="shimmer">正在实测出口位置…</span>` : `${placeName(ex)} ${locTag(ex)}`} · ${ex.proto} · 来自 <b>${prov(ex.prov).name}</b>。${S.mode === "global" ? "全局模式下<b>所有流量</b>都从这里出去。" : `没命中其他规则的流量从这里出去，约占 <b>${Math.round(r0.share * 100)}%</b>。`}`;
+      deck = `${locating ? `<span class="shimmer">正在实测出口位置…</span>` : `${placeName(ex)} ${locTag(ex)}`} · ${ex.proto} · 来自 <b>${prov(ex.prov).name}</b>。${S.mode === "global" ? "全局模式下<b>所有流量</b>都从这里出去。" : `没命中规则的流量从这里出去，约占 <b>${Math.round(r0.share * 100)}%</b>。`}`;
     }
     if (off) return {
       normal: `<div class="pad hero-pad off-hero">
@@ -724,7 +744,7 @@ const VIEWS = {
     };
     return {
       normal: `<div class="pad hero-pad">
-        <div class="kicker" data-m="k-hero">当前出口 · <b>${S.mode === "global" ? "全局" : "默认路由"}</b></div>
+        <div class="kicker" data-m="k-hero">${S.mode === "global" ? "当前出口 · <b>全局</b>" : "<b>其他流量</b>的出口"}</div>
         <h1 class="headline ${switching ? "shimmer" : ""}" data-m="exit-default">${headline}</h1>
         <div class="deck">${switching ? `<span class="shimmer">正在切换并测速…</span>` : deck}</div>
         ${ex ? `<div class="lat-big"><span class="v num ${switching ? "skel" : ""}" style="color:${tone(ex.ms)}">${ex.ms}<small>ms</small></span>
@@ -732,14 +752,15 @@ const VIEWS = {
         <div class="hero-actions">
           <button class="pill" data-expand="hero">换节点</button>
           <button class="pill ghost ${r0.auto ? "on" : ""}" data-auto="default">${r0.auto ? '<span class="gdot"></span>' : ""}自动选最快</button>
-        </div>` : ""}
+          ${S.mode === "rule" ? `<button class="pill ghost" data-other-exit="direct">直接连接</button>` : ""}
+        </div>` : r0.direct ? `<div class="hero-actions"><button class="pill" data-other-exit="node">改为走节点</button></div>` : ""}
       </div>`,
-      compact: (v) => cmp(v, "hero", "当前出口", off ? "未接管" : S.mode === "direct" ? "直接连接" : `${flag(ex)} ${ex.name}`, {
+      compact: (v) => cmp(v, "hero", "当前出口", off ? "未接管" : S.mode === "direct" || r0.direct ? "直接连接" : `${flag(ex)} ${ex.name}`, {
         key: "exit-default", cls: switching ? "shimmer" : "",
         sub: ex ? `<span style="color:${tone(ex.ms)}">${ex.ms} ms</span> · ${placeName(ex)} · ${ex.proto}` : "",
         list: ex ? `<span>来自 ${prov(ex.prov).name}</span><span>${route("default").auto ? "自动选最快" : "手动选择"}</span>` : "" }),
-      detail: `<div class="det">${detHead("当前出口 · 默认路由 · 选择出口", `${ex ? `<span class="${switching ? "shimmer" : ""}" data-m="exit-default">${flag(ex)} ${ex.name}</span>` : "选择出口"}`, autoSeg("default"), "k-hero")}
-        <div class="det-b">${nodePicker("default")}</div></div>`,
+      detail: `<div class="det">${detHead("其他流量的出口", `${ex ? `<span class="${switching ? "shimmer" : ""}" data-m="exit-default">${flag(ex)} ${ex.name}</span>` : r0.direct ? "直接连接" : "选择出口"}`, r0.direct ? "" : autoSeg("default"), "k-hero")}
+        <div class="det-b">${otherExit()}${r0.direct ? "" : nodePicker("default")}</div></div>`,
     };
   },
 
@@ -760,15 +781,15 @@ const VIEWS = {
   },
 
   mode() {
-    const desc = { rule: "按 <b>49 条规则</b>把流量分到 5 条路由；没命中的走默认。", global: "<b>所有流量</b>都走当前出口，规则暂不生效。", direct: "<b>所有流量直接连接</b>，不经过任何节点。" }[S.mode];
+    const desc = { rule: "按 <b>49 条规则</b>分流；没命中的归「其他流量」。", global: "<b>所有流量</b>都走当前出口，规则暂不生效。", direct: "<b>所有流量直接连接</b>，不经过任何节点。" }[S.mode];
     const words = [["rule", "规则"], ["global", "全局"], ["direct", "直连"]];
     return {
       normal: `<div class="pad"><span class="hint">展开</span><div class="kicker" data-m="k-mode">模式</div>
         <div class="words">${words.map(([id, l]) => `<button class="word ${S.mode === id ? "on" : ""} ${busy("mode:" + id) ? "shimmer" : ""}" data-mode="${id}">${l}${S.mode === id ? '<span class="ul" data-m="mode-ul" data-mbox></span>' : ""}</button>`).join("")}</div>
         <p class="note">${desc}</p></div>`,
-      compact: (v) => cmp(v, "mode", "模式", words.find((w) => w[0] === S.mode)[1], { sub: { rule: "49 条规则 · 5 条路由", global: "所有流量走默认出口", direct: "不经过任何节点" }[S.mode] }),
+      compact: (v) => cmp(v, "mode", "模式", words.find((w) => w[0] === S.mode)[1], { sub: { rule: "49 条规则 · 5 条路由", global: "所有流量走节点", direct: "不经过任何节点" }[S.mode] }),
       detail: `<div class="det">${detHead("模式", "模式与规则", "", "k-mode")}<div class="det-b">
-        ${[["rule", "规则", "按规则把流量分到不同路由。日常就用这个。"], ["global", "全局", "所有流量都走「默认」路由的出口，规则暂停。临时需要时用。"], ["direct", "直连", "所有流量直接连接，不经过任何节点。排查网络问题时用。"]].map(([id, l, d]) => `
+        ${[["rule", "规则", "按规则把流量分到不同路由。日常就用这个。"], ["global", "全局", "所有流量都走节点，规则暂停。临时需要时用。"], ["direct", "直连", "所有流量直接连接，不经过任何节点。排查网络问题时用。"]].map(([id, l, d]) => `
           <div class="dsec"><h4>${l}<small>${S.mode === id ? "当前" : ""}</small></h4><div class="muted" style="font-size:12.5px">${d}</div><button class="btn" data-mode="${id}">${busy("mode:" + id) ? '<span class="shimmer">切换中…</span>' : S.mode === id ? "✓ 使用中" : "切换"}</button></div>`).join("")}
         <div class="dsec"><h4>规则<small>49 条 · Moho 默认模板</small></h4>
           <div class="kv">${ROUTES.map((r) => `<span><span class="sw" style="background:var(${r.color})"></span> ${r.name}</span><span>${r.nrules} 条 · ${r.rules}</span>`).join("")}</div>
@@ -807,7 +828,7 @@ const VIEWS = {
     const others = ROUTES.filter((r) => r.id !== "default");
     const sub = S.sub && route(S.sub);
     return {
-      normal: `<div class="pad"><span class="hint">展开</span><div class="kicker" data-m="k-routes">其他路由</div><div style="margin-top:6px">${others.map((r) => { const n = r.direct ? null : node(r.node); return `
+      normal: `<div class="pad"><span class="hint">展开</span><div class="kicker" data-m="k-routes">分流</div><div style="margin-top:6px">${others.map((r) => { const n = r.direct ? null : node(r.node); return `
         <button class="route ${active(r.id) ? "" : "dim"}" data-expand="routes" ${r.direct ? "" : `data-sub="${r.id}"`}>
           <span class="sw" style="background:var(${r.color})"></span><span class="rn" data-m="rn-${r.id}">${r.name}</span>
           <span class="ex ${busy("node:" + r.id) ? "shimmer" : ""}" data-m="exit-${r.id}">${n ? `${flag(n)} ${n.name}` : "直接连接"}</span>
@@ -816,20 +837,20 @@ const VIEWS = {
         const px = others.filter((r) => !r.direct);
         const dots = px.map((r) => `<span class="sw" style="background:var(${r.color})"></span>`).join(" ");
         const inline = px.map((r) => `<span class="sw" style="background:var(${r.color})"></span> ${r.name} → ${node(r.node).name}`).join("　");
-        if (v === "strip") return `<div class="cmp strip"><span class="k" data-m="k-routes">其他路由</span><span class="vl rlist-inline">${inline}</span></div>`;
-        return cmp(v, "routes", "其他路由", `${dots}<span class="cnt">${px.length} 条</span>`, {
+        if (v === "strip") return `<div class="cmp strip"><span class="k" data-m="k-routes">分流</span><span class="vl rlist-inline">${inline}</span></div>`;
+        return cmp(v, "routes", "分流", `${dots}<span class="cnt">${px.length} 条</span>`, {
           list: px.map((r) => `<span><span class="sw" style="background:var(${r.color})"></span> ${r.name}<br><b>${flag(node(r.node))} ${node(r.node).name}</b></span>`).join("") });
       },
       detail: sub
-        ? `<div class="det">${detHead(`<button class="back" data-sub-back>‹ 路由</button>`, `<span class="sw" style="background:var(${sub.color});width:10px;height:10px"></span><span data-m="rn-${sub.id}">${sub.name}</span> → <span class="${busy("node:" + sub.id) ? "shimmer" : ""}" ${sub.id === "default" ? "" : `data-m="exit-${sub.id}"`}>${flag(node(sub.node))} ${node(sub.node).name}</span>`, autoSeg(sub.id), "k-routes")}<div class="det-b">${nodePicker(sub.id)}</div></div>`
+        ? `<div class="det">${detHead(`<button class="back" data-sub-back>‹ 路由</button>`, `<span class="sw" style="background:var(${sub.color});width:10px;height:10px"></span><span data-m="rn-${sub.id}">${sub.name}</span> → <span class="${busy("node:" + sub.id) ? "shimmer" : ""}" ${sub.id === "default" ? "" : `data-m="exit-${sub.id}"`}>${sub.direct ? "直接连接" : `${flag(node(sub.node))} ${node(sub.node).name}`}</span>`, sub.direct ? "" : autoSeg(sub.id), "k-routes")}<div class="det-b">${sub.id === "default" ? otherExit() : ""}${sub.direct ? "" : nodePicker(sub.id)}</div></div>`
         : `<div class="det">${detHead("路由", "每类流量走哪里", `<button class="btn">＋ 新建路由</button>`, "k-routes")}<div class="det-b"><div class="rlist">
-          ${ROUTES.map((r) => { const n = r.direct ? null : node(r.node); return `
-            <button class="rr" style="width:100%" ${r.direct ? "" : `data-sub-open="${r.id}"`}>
+          ${(() => { const row = (r) => { const n = r.direct ? null : node(r.node); return `
+            <button class="rr ${r.id === "default" ? "rr-other" : ""}" style="width:100%" ${r.direct && r.id !== "default" ? "" : `data-sub-open="${r.id}"`}>
               <span class="sw" style="background:var(${r.color});width:10px;height:10px"></span><span class="rn" data-m="rn-${r.id}">${r.name}</span>
-              <span class="rules">${r.nrules} 条规则 · ${r.rules}</span>
+              <span class="rules">${r.id === "default" ? r.rules : `${r.nrules} 条规则 · ${r.rules}`}</span>
               <span class="ex ${busy("node:" + r.id) ? "shimmer" : ""}" ${r.id === "default" ? "" : `data-m="exit-${r.id}"`}>${n ? `${flag(n)} ${n.name}${r.auto ? ' <span class="loc name">自动</span>' : ""}` : "直接连接"}</span>
               <span class="num" style="color:${n ? tone(n.ms) : "var(--mute)"}">${n ? n.ms + " ms" : "—"}</span>
-              <span class="num muted">${Math.round(r.share * 100)}%</span><span class="muted">${r.direct ? "" : "›"}</span></button>`; }).join("")}
+              <span class="num muted">${Math.round(r.share * 100)}%</span><span class="muted">${r.direct && r.id !== "default" ? "" : "›"}</span></button>`; }; const rest = ROUTES.filter((r) => r.id !== "default"), other = route("default"); return `<div class="rmatch">${matchLine(rest, other)}<div class="rblock">${rest.map(row).join("")}</div><div class="rdrop">以上规则都没命中 · 今日还剩 ${Math.round(other.share * 100)}% 的流量</div>${row(other)}</div>`; })()}
         </div></div></div>`,
     };
   },
@@ -881,6 +902,39 @@ const speedHTML = (dv, du, uv, uu) => `<span class="v num">↓ ${dv}<small>${du}
 function autoSeg(rid) {
   const r = route(rid);
   return `<div class="seg"><button class="${r.auto ? "on" : ""}" data-auto-set="${rid}|1">自动</button><button class="${r.auto ? "" : "on"}" data-auto-set="${rid}|0">手动</button></div>`;
+}
+
+// The matching order as one line down through the groups' swatches, rows 54
+// high and 33 for the label above the last. Its weight is the traffic still unmatched.
+function matchLine(groups, other, rowH = 54, dropH = 33) {
+  const x = 11, y = (i) => rowH * i + rowH / 2, endY = rowH * groups.length + dropH + rowH / 2;
+  const weight = (left) => (1.75 + 4.5 * left).toFixed(2);
+  const stops = (a, b) => `<stop offset="0" style="stop-color:var(${a})"/><stop offset="1" style="stop-color:var(${b})"/>`;
+  const grad = (id, y1, y2, a, b) => `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="0" y1="${y1}" x2="0" y2="${y2}">${stops(a, b)}</linearGradient>`;
+  let left = 1, defs = "", arcs = "";
+  const first = groups[0].color;
+  defs += `<linearGradient id="ml-in" gradientUnits="userSpaceOnUse" x1="0" y1="-10" x2="0" y2="${y(0)}"><stop offset="0" style="stop-color:var(${first});stop-opacity:0"/><stop offset="1" style="stop-color:var(${first})"/></linearGradient>`;
+  arcs += `<path d="M ${x} -10 L ${x} ${y(0)}" stroke="url(#ml-in)" stroke-width="${weight(1)}"/>`;
+  groups.forEach((g, i) => {
+    left -= g.share;
+    const y0 = y(i), last = i === groups.length - 1, y1 = last ? endY : y(i + 1), to = last ? other.color : groups[i + 1].color;
+    defs += grad(`ml-${i}`, y0, y1, g.color, to);
+    arcs += `<path d="M ${x} ${y0} L ${x} ${last ? y1 - 16 : y1}" stroke="url(#ml-${i})" stroke-width="${weight(left)}"/>`;
+  });
+  return `<svg class="rmatch-line" aria-hidden="true"><defs>${defs}</defs><g fill="none" stroke-linecap="round">${arcs}</g><path d="M ${x - 5} ${endY - 17} L ${x} ${endY - 9} L ${x + 5} ${endY - 17} Z" style="fill:var(${other.color})"/></svg>`;
+}
+
+function otherExit() {
+  const direct = S.otherDirect, r = route("default"), n = node(r.node);
+  const groups = ROUTES.filter((x) => x.id !== "default").map((x) => `<span class="sw" style="background:var(${x.color})"></span> ${x.name}`).join("　");
+  return `<div class="ox">
+    <div class="ox-flow"><span>命中规则</span><span>${groups}</span><span>都没命中</span><span><b class="ox-name">其他流量</b> → <b>${direct ? "直接连接" : n.name}</b></span></div>
+    <div class="ox-opts">
+      <button class="ox-opt ${direct ? "" : "on"}" data-other-exit="node"><b>走节点</b><span>${r.auto ? "自动选最快" : "手动选择"} · ${n.name}</span></button>
+      <button class="ox-opt ${direct ? "on" : ""}" data-other-exit="direct"><b>直接连接</b><span>不经过节点，用本机网络</span></button>
+    </div>
+    ${direct ? `<div class="ox-note">没命中规则的网站会用本机网络访问。当前网络打不开的网站，需要加规则送到走节点的路由。${S.mode === "global" ? "现在是全局模式，所有流量仍走节点，回到规则模式后生效。" : ""}</div>` : ""}
+  </div>`;
 }
 
 function nodePicker(rid) {
@@ -1168,7 +1222,7 @@ function provRow(p) {
     ${open ? `<div class="pnodes">
       <div class="pn-row h"><span></span><span>节点</span><span>出口位置</span><span>协议</span><span>被哪些路由使用</span><span style="text-align:right">延迟</span></div>
       ${ns.map((n) => `<div class="pn-row"><span>${flag(n)}</span><b>${n.name}</b><span>${placeName(n)} ${locTag(n)}</span><span class="muted">${n.proto}</span>
-        <span>${ROUTES.filter((r) => r.node === n.id).map((r) => `<span class="sw" style="background:var(${r.color})"></span> ${r.name}`).join("　") || '<span class="muted">—</span>'}</span>
+        <span>${ROUTES.filter((r) => r.node === n.id && !r.direct).map((r) => `<span class="sw" style="background:var(${r.color})"></span> ${r.name}`).join("　") || '<span class="muted">—</span>'}</span>
         <span class="num" style="text-align:right;color:${tone(n.ms)}">${n.ms > 0 ? n.ms + " ms" : "超时"}</span></div>`).join("")}
       ${p.extra ? `<div class="pn-row"><span></span><span class="muted">还有 ${p.extra} 个节点…</span></div>` : ""}
       <div style="display:flex;gap:8px;padding-top:10px;font-size:12px;align-items:center" class="muted">来源：<span style="font-family:var(--mono)">${p.url}</span><span style="margin-left:auto;display:flex;gap:8px"><button class="btn">编辑</button><button class="btn danger">删除</button></span></div>
@@ -1339,7 +1393,7 @@ function setMode(m) {
 // ==================================================================
 // Events
 // ==================================================================
-const ACTIONS = "[data-set],[data-page],[data-mode],[data-entry],[data-expand],[data-collapse],[data-pick],[data-auto],[data-auto-set],[data-region],[data-test],[data-lan],[data-fix],[data-acttab],[data-astatus],[data-aroute],[data-sort],[data-kill],[data-conn],[data-pause],[data-closeall],[data-lv],[data-upd],[data-updall],[data-provoff],[data-add],[data-goapp],[data-prov],[data-sub-open],[data-sub-back]";
+const ACTIONS = "[data-other-exit],[data-set],[data-page],[data-mode],[data-entry],[data-expand],[data-collapse],[data-pick],[data-auto],[data-auto-set],[data-region],[data-test],[data-lan],[data-fix],[data-acttab],[data-astatus],[data-aroute],[data-sort],[data-kill],[data-conn],[data-pause],[data-closeall],[data-lv],[data-upd],[data-updall],[data-provoff],[data-add],[data-goapp],[data-prov],[data-sub-open],[data-sub-back]";
 document.addEventListener("click", (e) => {
   const t = e.target.closest(ACTIONS);
   if (!t) {
@@ -1359,6 +1413,7 @@ document.addEventListener("click", (e) => {
   if (d.subOpen) { S.nd = { region: "all", q: "" }; return morph(() => { S.sub = d.subOpen; render(); }); }
   if (d.subBack !== undefined) return morph(() => { S.sub = null; render(); });
   if (d.pick) { const [rid, nid] = d.pick.split("|"); return pickNode(rid, nid, t); }
+  if (d.otherExit) return morph(() => { S.otherDirect = d.otherExit === "direct"; render(); });
   if (d.auto) { const r = route(d.auto); return morph(() => { r.auto = !r.auto; if (r.auto) r.node = "hk3"; render(); }); }
   if (d.autoSet) { const [rid, v] = d.autoSet.split("|"); const r = route(rid); if (!!+v === r.auto) return; return morph(() => { r.auto = !!+v; if (r.auto) r.node = [...NODES].filter((n) => n.ms > 0).sort((a, b) => a.ms - b.ms)[0].id; render(); }); }
   if (d.region) { S.nd.region = d.region; return morph(render); }

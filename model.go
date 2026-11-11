@@ -68,10 +68,15 @@ type Snapshot struct {
 	// ControllerTCP is Moho's own controller address when it fell back to
 	// TCP; the dashboards' controller is then that one.
 	ControllerTCP string `json:"controllerTcp,omitempty"`
+	// CanUndoImport: a configuration was imported, and what it replaced is
+	// kept (app_backup.go).
+	CanUndoImport bool `json:"canUndoImport,omitempty"`
 	// Dev is what the developer networks page shows.
 	Dev DevNet `json:"dev"`
 	// Tools are the developer tools found.
 	Tools []devtools.Tool `json:"tools,omitempty"`
+	// Sources are where the package tools download from.
+	Sources []devtools.Source `json:"sources,omitempty"`
 	// Update is a new version of bowel and how far installing it has got.
 	Update *UpdateView `json:"update,omitempty"`
 	// UpdateInfo is the rest of what the update's interface shows.
@@ -132,7 +137,7 @@ type Entry struct {
 	// Wanted is the user's choice.
 	Wanted bool `json:"wanted"`
 	// Status: off, on, hijacked (system proxy points elsewhere), install
-	// (TUN needs its one-time authorisation), error.
+	// (TUN needs its one-time authorisation), error (Detail says why).
 	Status string `json:"status"`
 	Detail string `json:"detail,omitempty"`
 }
@@ -304,6 +309,10 @@ type ProviderRouting struct {
 	InUse  bool `json:"inUse,omitempty"` // it is what routes traffic now
 	// Problem is why it can't be used, "" when it can.
 	Problem string `json:"problem,omitempty"`
+	// NeedsFile is the proxy-provider of its config that is a local file
+	// bowel has no local file Provider for; adding one by that name is all
+	// the problem takes.
+	NeedsFile string `json:"needsFile,omitempty"`
 }
 
 // ImportedView is a provider's own routing, as it is now.

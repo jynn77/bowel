@@ -76,6 +76,7 @@ func TestPanelOff(t *testing.T) {
 	u.snap.Takeover.On = false
 	u.snap.State = StateOff
 	u.snap.Issue = nil
+	u.tick, u.home.hist = Tick{}, nil // nothing observed
 	tt := panelTester(u, 560, false)
 	shot(t, tt, "panel-off")
 	wantTexts(t, tt, "未接管", "流量不经过 bowel", "打开 bowel")

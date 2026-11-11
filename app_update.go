@@ -61,7 +61,7 @@ var osUpdate = struct {
 		}
 		return &foundUpdate{Version: up.Version, install: up.Install}, nil
 	},
-	relaunch: mygo.App.Relaunch,
+	relaunch: func() { mygo.App.Relaunch() },
 }
 
 // updateState is where updating has got to.

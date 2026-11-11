@@ -64,4 +64,23 @@ func TestProviderOffersItsRouting(t *testing.T) {
 	if !tt.HasText("带路由组，但不能使用：「r」指向本地文件") {
 		t.Errorf("no reason: %q", tt.Texts())
 	}
+	// A proxy-provider that is a local file can be given one from the row,
+	// besides the add bar's own button; a local file can be read again.
+	files := func() (n int) {
+		for _, s := range tt.Texts() {
+			if s == "选择文件…" {
+				n++
+			}
+		}
+		return n
+	}
+	before := files()
+	u.snap.Providers[0].Routing = ProviderRouting{Problem: "「nodes」指向本地文件", NeedsFile: "nodes"}
+	u.snap.Providers[2].Kind = "file"
+	tt = ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{})
+	tt.Advance(time.Second)
+	shot(t, tt, "imported-needs-file")
+	if files() != before+1 || !tt.HasText("重新读取") {
+		t.Errorf("no file to choose or read again: %q", tt.Texts())
+	}
 }

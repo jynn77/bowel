@@ -1,8 +1,12 @@
 package sysproxy
 
 import (
+	"context"
+	"net"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Endpoint is one of a network service's proxies: web, secure web or SOCKS.
@@ -57,6 +61,49 @@ func (saved *Saved) Forget(ports ...int) {
 			sv.Bypass = slices.Clone(DefaultBypass)
 		}
 	}
+}
+
+// TurnOffDead turns off the local proxies in saved that listening says
+// nothing serves any more, so that putting them back does not leave the
+// system pointing at a dead port. Each keeps its address, for the user to
+// turn on again; proxies on other machines are not looked at.
+func (saved *Saved) TurnOffDead(listening func(host string, port int) bool) {
+	type addr struct {
+		host string
+		port int
+	}
+	known := map[addr]bool{}
+	for i := range saved.Services {
+		for _, e := range saved.Services[i].endpoints() {
+			if !e.On || !local(e.Host) {
+				continue
+			}
+			at := addr{e.Host, e.Port}
+			up, seen := known[at]
+			if !seen {
+				up = listening(e.Host, e.Port)
+				known[at] = up
+			}
+			e.On = up
+		}
+	}
+}
+
+// listenLimit is long enough for a local listener, however busy, as the
+// kernel answers for it. Windows retries a refused local connection for
+// about two seconds, so waiting for the refusal would cost that at quitting.
+const listenLimit = 500 * time.Millisecond
+
+// Listening reports whether something at host:port takes connections.
+func Listening(ctx context.Context, host string, port int) bool {
+	ctx, cancel := context.WithTimeout(ctx, listenLimit)
+	defer cancel()
+	c, err := (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+	if err != nil {
+		return false
+	}
+	c.Close()
+	return true
 }
 
 func local(host string) bool {

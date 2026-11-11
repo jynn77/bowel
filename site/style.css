@@ -80,7 +80,7 @@ html.zh .en, html.en .zh { display: none !important; }
 .links a:hover { background: var(--hair2); color: var(--ink); }
 .nav-end { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .lang {
-  font: 600 13px var(--sans); color: var(--ink2); cursor: pointer;
+  font: 600 13px var(--sans); color: var(--ink2); text-decoration: none;
   background: transparent; border: 1px solid var(--hair); border-radius: 999px; padding: 5px 12px;
 }
 .lang:hover { color: var(--ink); border-color: var(--faint); }
@@ -115,9 +115,10 @@ section { padding: 0 max(24px, calc((100vw - var(--w)) / 2)); }
 
 /* Hero */
 .hero { padding-top: 76px; text-align: center; overflow-x: clip; padding-bottom: 60px; }
-.kicker { display: inline-flex; align-items: center; gap: 12px; margin: 0 0 26px; font-size: 14px; color: var(--ink2); padding: 6px 16px 6px 14px; border-radius: 999px; background: var(--hair2); }
-.hero h1 { font-size: clamp(46px, 8.4vw, 108px); line-height: 1.02; font-weight: 800; }
-html.zh .hero h1 { line-height: 1.12; }
+.kicker { display: inline-flex; align-items: center; gap: 12px; margin: 0 0 26px; font-size: 14px; color: var(--ink2); padding: 6px 16px 6px 14px; border-radius: 999px; background: var(--hair2); font-family: var(--sans); font-weight: 400; letter-spacing: 0; }
+/* The slogan is set like a heading; the page's h1 is the pill above it. */
+.slogan { margin: 0; font-family: var(--display); font-size: clamp(46px, 8.4vw, 108px); line-height: 1.02; font-weight: 800; letter-spacing: -.02em; }
+html.zh .slogan { line-height: 1.12; letter-spacing: 0; }
 .lede { max-width: 640px; margin: 28px auto 0; font-size: clamp(17px, 1.6vw, 20px); color: var(--ink2); }
 /* Get: platform tabs, then that platform's downloads and command. */
 .get { max-width: 600px; margin: 36px auto 0; text-align: center; }

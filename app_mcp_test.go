@@ -272,7 +272,7 @@ func TestMCPChanges(t *testing.T) {
 
 	// Settings that reload the core, and the mode.
 	must("update_settings", map[string]any{"changes": map[string]any{"logLevel": "debug", "ipv6": false}})
-	if st := a.settings.Get(); st.LogLevel != "debug" || st.IPv6 {
+	if st := a.settings.Get(); st.LogLevel != "debug" || st.IPv6 != core.IPv6Off {
 		t.Errorf("settings: %s %v", st.LogLevel, st.IPv6)
 	}
 	must("set_mode", map[string]any{"mode": "global"})

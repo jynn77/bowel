@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/png"
 	"os"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -42,7 +43,9 @@ func (a *App) qrScreen(ctx context.Context) (string, []qrSpots, error) {
 		_, _ = permissionflow.Request(ctx, permissionflow.ScreenRecording) // the system's prompt, once
 	}
 	codes, err := qr.ScanScreen()
-	if errors.Is(err, qr.ErrScreen) || errors.Is(err, qr.ErrNone) && !permissionflow.Allowed(permissionflow.ScreenRecording) {
+	// Only macOS keeps the screen behind a permission of its own; on the
+	// other systems a capture that failed says so itself.
+	if runtime.GOOS == "darwin" && (errors.Is(err, qr.ErrScreen) || errors.Is(err, qr.ErrNone) && !permissionflow.Allowed(permissionflow.ScreenRecording)) {
 		_ = permissionflow.OpenSettings(permissionflow.ScreenRecording)
 		return "", nil, errors.New(i18n.T("读取屏幕需要「屏幕录制」权限：在系统设置里允许 bowel，重新打开 bowel 后再扫描", "Reading the screen needs Screen Recording: allow bowel in System Settings, reopen bowel, then scan again"))
 	}

@@ -247,11 +247,11 @@ List<Conn> conns = const [
   Conn(host: 'googlevideo.com', app: 'YouTube', route: 'media', routeName: '流媒体', node: '新加坡 01', rate: '1.15 MB/s', dur: '2:14', status: 'active', rule: 'GeoSite youtube', ip: '142.250.66.14', net: 'TCP', port: 443, total: '↓ 84.2 MB  ↑ 1.4 MB'),
   Conn(host: 'api.anthropic.com', app: 'Claude', route: 'ai', routeName: 'AI 服务', node: '洛杉矶 VPS', rate: '82.0 KB/s', dur: '0:41', status: 'active', rule: '域名后缀 anthropic.com', ip: '160.79.104.10', net: 'TCP', port: 443, total: '↓ 2.1 MB  ↑ 340 KB'),
   Conn(host: 'github.com', app: 'GitHub', route: 'dev', routeName: '开发', node: '东京 01', rate: '205 KB/s', dur: '0:12', status: 'active', rule: 'GeoSite github', ip: '20.205.243.166', net: 'TCP', port: 443, total: '↓ 3.8 MB  ↑ 96 KB'),
-  Conn(host: 'x.com', app: 'X', route: 'default', routeName: '默认', node: '香港 03 IPLC', rate: '失败', dur: '', status: 'failed', rule: '未命中，走默认', ip: '—', net: 'TCP', port: 443, total: '连接超时', err: '连接节点超时'),
-  Conn(host: 'slack.com', app: 'Slack', route: 'default', routeName: '默认', node: '香港 03 IPLC', rate: '11.7 KB/s', dur: '8:03', status: 'active', rule: '未命中，走默认', ip: '3.4.12.8', net: 'TCP', port: 443, total: '↓ 1.2 MB  ↑ 210 KB'),
+  Conn(host: 'x.com', app: 'X', route: 'default', routeName: '其他流量', node: '香港 03 IPLC', rate: '失败', dur: '', status: 'failed', rule: '未命中，归其他流量', ip: '—', net: 'TCP', port: 443, total: '连接超时', err: '连接节点超时'),
+  Conn(host: 'slack.com', app: 'Slack', route: 'default', routeName: '其他流量', node: '香港 03 IPLC', rate: '11.7 KB/s', dur: '8:03', status: 'active', rule: '未命中，归其他流量', ip: '3.4.12.8', net: 'TCP', port: 443, total: '↓ 1.2 MB  ↑ 210 KB'),
   Conn(host: 'weixin.qq.com', app: '微信', route: 'direct', routeName: '直连', node: '', rate: '3.2 KB/s', dur: '14:52', status: 'active', rule: 'GeoSite cn', ip: '183.3.226.35', net: 'TCP', port: 443, total: '↓ 640 KB  ↑ 88 KB'),
-  Conn(host: 'cdn.jsdelivr.net', app: 'Safari', route: 'default', routeName: '默认', node: '香港 03 IPLC', rate: '已关闭', dur: '0:03', status: 'closed', rule: '未命中，走默认', ip: '104.16.85.20', net: 'TCP', port: 443, total: '↓ 412 KB  ↑ 12 KB'),
-  Conn(host: 'stun.l.google.com', app: 'Meet', route: 'default', routeName: '默认', node: '香港 03 IPLC', rate: '已关闭', dur: '0:21', status: 'closed', rule: '未命中，走默认', ip: '74.125.250.129', net: 'UDP', port: 19302, total: '↓ 2 KB  ↑ 2 KB'),
+  Conn(host: 'cdn.jsdelivr.net', app: 'Safari', route: 'default', routeName: '其他流量', node: '香港 03 IPLC', rate: '已关闭', dur: '0:03', status: 'closed', rule: '未命中，归其他流量', ip: '104.16.85.20', net: 'TCP', port: 443, total: '↓ 412 KB  ↑ 12 KB'),
+  Conn(host: 'stun.l.google.com', app: 'Meet', route: 'default', routeName: '其他流量', node: '香港 03 IPLC', rate: '已关闭', dur: '0:21', status: 'closed', rule: '未命中，归其他流量', ip: '74.125.250.129', net: 'UDP', port: 19302, total: '↓ 2 KB  ↑ 2 KB'),
 ];
 
 List<(String, String, String)> logs = const [
@@ -277,7 +277,7 @@ List<Node> providerNodes(ProviderInfo p) =>
 
 Map<String, double> share = const {'default': .31, 'ai': .1, 'media': .45, 'dev': .06, 'direct': .08};
 Map<String, String> rulesOf = const {
-  'default': '没命中其他规则的流量',
+  'default': '没命中任何规则的流量',
   'ai': '12 条规则 · openai.com、anthropic.com',
   'media': '18 条规则 · youtube.com、netflix.com',
   'dev': '9 条规则 · github.com、docker.io',
@@ -292,7 +292,7 @@ List<(String, String, String, String)> topApps = const [
 ];
 List<(String, String, String, String)> modes = const [
   ('rule', '规则', '按规则把流量分到不同路由。日常就用这个。', '49 条规则 · 5 条路由'),
-  ('global', '全局', '所有流量都走默认路由的出口，规则暂停。', '所有流量走默认出口'),
+  ('global', '全局', '所有流量都走节点，规则暂停。', '所有流量走节点'),
   ('direct', '直连', '所有流量直接连接，不经过任何节点。', '不经过任何节点'),
 ];
 

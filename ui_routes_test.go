@@ -88,7 +88,7 @@ func TestRoutesAddRule(t *testing.T) {
 	u := routesFixture()
 	u.selectGroup("ai")
 	u.routes.svc = "claude"
-	tt := ui.NewTester(u.view, 1060, 760)
+	tt := ui.NewTester(u.view, 1060, 860) // room for the exit choice above the services
 	tt.Advance(time.Second)
 
 	typeInto(t, tt, "新规则", "https://chat.example.com/x")
@@ -423,5 +423,195 @@ func TestRuleSetImportPanel(t *testing.T) {
 	tt.Advance(100 * time.Millisecond)
 	if hasTextPart(tt, "已经导入到") || u.routes.rs.open {
 		t.Error("the panel stayed")
+	}
+}
+
+// TestDefaultExitChoice: 其他流量 comes last, chooses its exit before its
+// node strategy, and has no strategy while it goes direct.
+func TestDefaultExitChoice(t *testing.T) {
+	for _, direct := range []bool{false, true} {
+		u := routesFixture()
+		for i := range u.snap.Routes {
+			if u.snap.Routes[i].ID == routes.Default {
+				u.snap.Routes[i].Direct = direct
+			}
+		}
+		u.snap.Settings.Routing.ChangePolicy(routes.Default, func(q *routes.Policy) { q.Direct = direct })
+		tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{})
+		tt.Advance(time.Second)
+		if err := tt.Click("其他流量"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Advance(time.Second)
+		for _, want := range []string{"走节点", "直接连接", "不经过节点，用本机网络", "以上规则都没命中"} {
+			if !hasTextPart(tt, want) {
+				t.Errorf("direct=%v lacks %q: %q", direct, want, tt.Texts())
+			}
+		}
+		if got := hasTextPart(tt, "节点策略"); got == direct {
+			t.Errorf("direct=%v: node strategy shown is %v", direct, got)
+		}
+		if got := hasTextPart(tt, "当前网络打不开的网站"); got != direct {
+			t.Errorf("direct=%v: warning shown is %v", direct, got)
+		}
+		shot(t, tt, map[bool]string{false: "routes-other", true: "routes-other-direct"}[direct])
+
+		u = fixtureUI()
+		for i := range u.snap.Routes {
+			if u.snap.Routes[i].ID == routes.Default {
+				u.snap.Routes[i].Direct = direct
+			}
+		}
+		u.home.x = "routes"
+		tt = ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{})
+		tt.Advance(2 * time.Second)
+		if !hasTextPart(tt, "以上规则都没命中") || !hasTextPart(tt, "其他流量") {
+			t.Errorf("home list: %q", tt.Texts())
+		}
+		shot(t, tt, map[bool]string{false: "home-routes", true: "home-routes-direct"}[direct])
+	}
+}
+
+// TestGroupExitChoice: a route group other than 直连 and 拦截 chooses its
+// exit as 其他流量 does. Going direct hides its node strategy and keeps it;
+// it stays a group that can be renamed and deleted.
+func TestGroupExitChoice(t *testing.T) {
+	u := routesFixture()
+	u.snap.Settings.Routing.SetStrategy("ai", routes.ModeFixed, "hk")
+	tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{})
+	tt.Advance(time.Second)
+	if err := tt.Click("AI 服务"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	for _, want := range []string{"走节点", "不经过节点，用本机网络", "节点策略"} {
+		if !hasTextPart(tt, want) {
+			t.Errorf("on a node, lacks %q: %q", want, tt.Texts())
+		}
+	}
+	if err := tt.Click("不经过节点，用本机网络"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if q := u.shownSettings().Routing.Policy("ai"); !q.Direct || q.Mode != routes.ModeFixed || q.Fixed != "hk" {
+		t.Errorf("the policy after going direct: %+v", q)
+	}
+	if slices.Contains(tt.Texts(), "节点策略") || !hasTextPart(tt, "节点策略会保留") || hasTextPart(tt, "当前网络打不开的网站") {
+		t.Errorf("direct: %q", tt.Texts())
+	}
+	if _, ok := tt.AccessByRole(ui.RoleTextField, "路由组名字"); !ok {
+		t.Error("a group that goes direct can't be renamed")
+	}
+	if !hasTextPart(tt, "删除路由组") {
+		t.Errorf("a group that goes direct can't be deleted: %q", tt.Texts())
+	}
+	shot(t, tt, "routes-group-direct")
+	if err := tt.Click("走节点"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if q := u.shownSettings().Routing.Policy("ai"); q.Direct || q.Fixed != "hk" {
+		t.Errorf("the policy back on a node: %+v", q)
+	}
+	for _, name := range []string{"直连", "拦截"} {
+		if err := tt.Click(name); err != nil {
+			t.Fatal(err)
+		}
+		tt.Advance(time.Second)
+		if hasTextPart(tt, "走节点") || hasTextPart(tt, "不经过节点，用本机网络") {
+			t.Errorf("%s chooses an exit: %q", name, tt.Texts())
+		}
+	}
+}
+
+// dragOnto drags the row showing from onto the row showing to.
+func dragOnto(t *testing.T, tt *ui.Tester, from, to string) {
+	t.Helper()
+	a, ok := tt.Find(from)
+	if !ok {
+		t.Fatalf("no %q: %q", from, tt.Texts())
+	}
+	b, ok := tt.Find(to)
+	if !ok {
+		t.Fatalf("no %q: %q", to, tt.Texts())
+	}
+	ax, ay := a.X+a.W/2, a.Y+a.H/2
+	bx, by := b.X+b.W/2, b.Y+b.H/2
+	tt.Press(ax, ay)
+	tt.Frame()
+	for i := 1; i <= 4; i++ {
+		tt.Move(ax+(bx-ax)*float32(i)/4, ay+(by-ay)*float32(i)/4)
+		tt.Frame()
+	}
+	tt.Release(bx, by)
+	tt.Advance(200 * time.Millisecond)
+}
+
+// TestDragToReorder: a route group dragged onto another takes its place,
+// and so does a rule set within its group; the fixed groups neither move
+// nor take one. The list says what the order means.
+func TestDragToReorder(t *testing.T) {
+	u := routesFixture()
+	plan := &u.snap.Settings.Routing
+	g := plan.AddGroup(nil, "OpenAI")
+	first := plan.AddRuleSet(nil, "ai", "宽的规则集", "https://x.example/a.yaml")
+	second := plan.AddRuleSet(nil, "ai", "窄的规则集", "https://x.example/b.yaml")
+	tt := ui.NewTesterWith(u.view, 1060, 860, ui.TesterOptions{})
+	tt.Advance(time.Second)
+	if !hasTextPart(tt, "规则集从上到下匹配") {
+		t.Errorf("no word on what the order means: %q", tt.Texts())
+	}
+	order := func() []string {
+		var out []string
+		for _, c := range u.shownSettings().Routing.Groups {
+			out = append(out, c.ID)
+		}
+		return out
+	}
+	dragOnto(t, tt, "OpenAI", "AI 服务")
+	if got, want := order(), []string{routes.Default, g, "ai", "media", "dev", "direct", routes.Reject}; !slices.Equal(got, want) {
+		t.Errorf("after dragging up: %v, want %v", got, want)
+	}
+	shot(t, tt, "routes-reordered")
+	dragOnto(t, tt, "OpenAI", "开发")
+	if got, want := order(), []string{routes.Default, "ai", "media", "dev", g, "direct", routes.Reject}; !slices.Equal(got, want) {
+		t.Errorf("after dragging down: %v, want %v", got, want)
+	}
+	before := order()
+	dragOnto(t, tt, "OpenAI", "直连")
+	dragOnto(t, tt, "拦截", "流媒体")
+	dragOnto(t, tt, "其他流量", "流媒体")
+	if got := order(); !slices.Equal(got, before) {
+		t.Errorf("a fixed group moved or gave up its place: %v", got)
+	}
+
+	if err := tt.Click("AI 服务"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	sets := func() []string {
+		var out []string
+		for _, l := range routes.Lines(routes.Build(u.shownSettings().Routing, nil), nil) {
+			if l.Set != "" {
+				out = append(out, l.Set)
+			}
+		}
+		return out
+	}
+	if got := sets(); !slices.Equal(got, []string{first, second}) {
+		t.Fatalf("sets before: %v", got)
+	}
+	dragOnto(t, tt, "窄的规则集", "宽的规则集")
+	if got := sets(); !slices.Equal(got, []string{second, first}) {
+		t.Errorf("sets after dragging the second onto the first: %v", got)
+	}
+	a, _ := tt.Find("窄的规则集")
+	b, _ := tt.Find("宽的规则集")
+	if a.Y >= b.Y {
+		t.Errorf("the list still shows the old order: %v %v", a, b)
+	}
+	dragOnto(t, tt, "窄的规则集", "Claude") // a service and a set are not one another's place
+	if got := sets(); !slices.Equal(got, []string{second, first}) {
+		t.Errorf("sets after a drag onto a service: %v", got)
 	}
 }

@@ -1,28 +1,77 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<!-- Both languages live in this file; scripts/build-site.py makes the Chinese
+     page at / and the English one at /en/ from it. -->
+<html lang="zh-CN" class="zh" en:lang="en" en:class="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>bowel · 跨平台的 mihomo 客户端</title>
-<meta name="description" content="bowel 是 macOS、Windows、Linux 和 Android 上的 mihomo 客户端：管理节点、路由和规则，查看每条连接，六种皮肤可选。">
-<meta property="og:title" content="bowel · 跨平台的 mihomo 客户端">
-<meta property="og:description" content="macOS、Windows、Linux 和 Android 上的 mihomo 客户端，六种皮肤可选。">
-<meta property="og:image" content="shots/home-zh.webp">
+<!--zh-->
+<title>bowel：macOS、Windows、Linux、Android 上的 mihomo（Clash Meta）客户端</title>
+<meta name="description" content="bowel 是免费的 mihomo（Clash Meta）代理客户端，支持 macOS、Windows、Linux 和 Android：导入订阅，管理节点、路由和规则，查看每条连接，十三种皮肤可选。">
+<link rel="canonical" href="https://bowel.dev/">
+<meta property="og:title" content="bowel：macOS、Windows、Linux、Android 上的 mihomo（Clash Meta）客户端">
+<meta property="og:description" content="bowel 是免费的 mihomo（Clash Meta）代理客户端，支持 macOS、Windows、Linux 和 Android：导入订阅，管理节点、路由和规则，查看每条连接，十三种皮肤可选。">
+<meta property="og:url" content="https://bowel.dev/">
+<meta property="og:image" content="https://bowel.dev/og-zh.png">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:locale:alternate" content="en_US">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "bowel",
+  "description": "bowel 是免费的 mihomo（Clash Meta）代理客户端，支持 macOS、Windows、Linux 和 Android：导入订阅，管理节点、路由和规则，查看每条连接，十三种皮肤可选。",
+  "url": "https://bowel.dev/",
+  "image": "https://bowel.dev/shots/home-zh.webp",
+  "applicationCategory": "UtilitiesApplication",
+  "operatingSystem": "macOS, Windows, Linux, Android",
+  "downloadUrl": "https://github.com/21stware/bowel/releases/latest",
+  "inLanguage": ["zh-CN", "zh-TW", "en", "ja"],
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Organization", "name": "21stware", "url": "https://github.com/21stware" }
+}
+</script>
+<!--/zh-->
+<!--en-->
+<title>bowel: mihomo (Clash Meta) client for macOS, Windows, Linux &amp; Android</title>
+<meta name="description" content="bowel is a free mihomo (Clash Meta) proxy client for macOS, Windows, Linux and Android: import subscriptions, manage nodes, routes and rules, see every connection, and choose from thirteen skins.">
+<link rel="canonical" href="https://bowel.dev/en/">
+<meta property="og:title" content="bowel: mihomo (Clash Meta) client for macOS, Windows, Linux &amp; Android">
+<meta property="og:description" content="bowel is a free mihomo (Clash Meta) proxy client for macOS, Windows, Linux and Android: import subscriptions, manage nodes, routes and rules, see every connection, and choose from thirteen skins.">
+<meta property="og:url" content="https://bowel.dev/en/">
+<meta property="og:image" content="https://bowel.dev/og-en.png">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="zh_CN">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "bowel",
+  "description": "bowel is a free mihomo (Clash Meta) proxy client for macOS, Windows, Linux and Android: import subscriptions, manage nodes, routes and rules, see every connection, and choose from thirteen skins.",
+  "url": "https://bowel.dev/en/",
+  "image": "https://bowel.dev/shots/home-en.webp",
+  "applicationCategory": "UtilitiesApplication",
+  "operatingSystem": "macOS, Windows, Linux, Android",
+  "downloadUrl": "https://github.com/21stware/bowel/releases/latest",
+  "inLanguage": ["zh-CN", "zh-TW", "en", "ja"],
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Organization", "name": "21stware", "url": "https://github.com/21stware" }
+}
+</script>
+<!--/en-->
+<link rel="alternate" hreflang="zh-CN" href="https://bowel.dev/">
+<link rel="alternate" hreflang="en" href="https://bowel.dev/en/">
+<link rel="alternate" hreflang="x-default" href="https://bowel.dev/en/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="bowel">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#f6f4ef" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#171615" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="icon.png">
 <link rel="apple-touch-icon" href="icon.png">
 <link rel="stylesheet" href="style.css">
-<script>
-  // Pick the language before the first paint: ?lang=, then the last choice, then the browser's.
-  (function () {
-    var q = new URLSearchParams(location.search).get("lang");
-    var saved = null; try { saved = localStorage.getItem("bowel-lang"); } catch (e) {}
-    var l = q || saved || (/^zh/i.test(navigator.language) ? "zh" : "en");
-    document.documentElement.className = l === "en" ? "en" : "zh";
-    document.documentElement.lang = l === "en" ? "en" : "zh-CN";
-  })();
-</script>
 </head>
 <body>
 
@@ -35,7 +84,7 @@
     <a href="#download"><span class="zh">下载</span><span class="en">Download</span></a>
   </nav>
   <div class="nav-end">
-    <button class="lang" type="button" aria-label="切换语言 / Switch language"><span class="zh">EN</span><span class="en">中文</span></button>
+    <a class="lang" href="en/" en:href="../" hreflang="en" en:hreflang="zh-CN" lang="en" en:lang="zh-CN" aria-label="English" en:aria-label="简体中文"><span class="zh">EN</span><span class="en">中文</span></a>
     <a class="gh" href="https://github.com/21stware/bowel" aria-label="GitHub">
       <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
     </a>
@@ -46,19 +95,20 @@
 
 <!-- Hero -->
 <section class="hero">
-  <p class="kicker"><span class="dot good"></span><span class="zh">跨平台代理客户端 · 基于 mihomo</span><span class="en">Cross-platform proxy client · powered by mihomo</span></p>
-  <h1>
+  <!-- The pill is the page's heading, for what it says; the slogan under it only looks like one. -->
+  <h1 class="kicker"><i class="dot good"></i><span class="zh">bowel · 跨平台的 mihomo 代理客户端</span><span class="en">bowel · a cross-platform mihomo proxy client</span></h1>
+  <p class="slogan">
     <span class="zh">连接两端世界</span>
     <span class="en">Connect two worlds</span>
-  </h1>
+  </p>
   <p class="lede">
-    <span class="zh">管理节点、路由和规则，查看每条连接，还有六种皮肤可选。</span>
-    <span class="en">Manage nodes, routes and rules, see every connection, and choose from six skins.</span>
+    <span class="zh">管理节点、路由和规则，查看每条连接，还有十三种皮肤可选。</span>
+    <span class="en">Manage nodes, routes and rules, see every connection, and choose from thirteen skins.</span>
   </p>
   <!-- One platform at a time. site.js picks the visitor's, points the links at
        the latest release's files, and copies this block into #download. -->
   <div class="get">
-    <div class="get-tabs" role="tablist" aria-label="平台 / Platform">
+    <div class="get-tabs" role="tablist" aria-label="平台" en:aria-label="Platform">
       <button type="button" role="tab" data-os="macos" aria-selected="true">macOS</button>
       <button type="button" role="tab" data-os="windows" aria-selected="false">Windows</button>
       <button type="button" role="tab" data-os="linux" aria-selected="false">Linux</button>
@@ -94,7 +144,7 @@
         <pre><code><span class="p">$</span> curl -fsSL https://21stware.github.io/packages/install.sh | sh</code></pre>
       </div>
       <p class="get-files"><span class="zh">或下载安装包</span><span class="en">Or download a package</span><span><b>amd64</b> <a href="https://github.com/21stware/bowel/releases/latest" data-asset="deb-amd64">.deb</a><a href="https://github.com/21stware/bowel/releases/latest" data-asset="rpm-amd64">.rpm</a><a href="https://github.com/21stware/bowel/releases/latest" data-asset="tgz-amd64">.tar.gz</a></span><span><b>arm64</b> <a href="https://github.com/21stware/bowel/releases/latest" data-asset="deb-arm64">.deb</a><a href="https://github.com/21stware/bowel/releases/latest" data-asset="rpm-arm64">.rpm</a><a href="https://github.com/21stware/bowel/releases/latest" data-asset="tgz-arm64">.tar.gz</a></span></p>
-      <p class="note"><span class="zh">这条命令会添加已签名的软件源，之后由 <code>apt</code> 或 <code>dnf</code> 更新 bowel。压缩包里的 <code>install.sh</code> 会把 bowel 安装到当前用户的 <code>~/.local</code>。</span><span class="en">The command adds a signed repository, so <code>apt</code> or <code>dnf</code> keeps bowel up to date. The archive's <code>install.sh</code> installs bowel for your user in <code>~/.local</code>.</span></p>
+      <p class="note"><span class="zh">上面的命令添加已签名的软件源，由 <code>apt</code> 或 <code>dnf</code> 更新 bowel。要安装到当前用户的 <code>~/.local</code>，从同一个 Release 下载单独的 <code>install.sh</code> 和 <code>.tar.gz</code>，不用解压，运行 <code>sh install.sh bowel-&lt;版本&gt;-linux-&lt;架构&gt;.tar.gz</code>。</span><span class="en">The command above adds a signed repository, so <code>apt</code> or <code>dnf</code> keeps bowel up to date. For a user install in <code>~/.local</code>, download the separate <code>install.sh</code> and <code>.tar.gz</code> from the same release, then run <code>sh install.sh bowel-&lt;version&gt;-linux-&lt;arch&gt;.tar.gz</code> without unpacking the archive.</span></p>
     </div>
     <div class="get-panel" role="tabpanel" data-os="android" hidden>
       <div class="get-btns">
@@ -108,10 +158,10 @@
 
   <div class="stage">
     <figure class="window">
-      <img data-shot="home" src="shots/home-zh.webp" width="1060" height="760" alt="bowel 主窗口 / bowel's main window">
+      <img data-shot="home" src="shots/home-zh.webp" width="1060" height="760" fetchpriority="high" alt="bowel 主窗口：节点、路由与实时流量" en:alt="bowel's main window: nodes, routes and live traffic">
     </figure>
     <figure class="panel-float">
-      <img data-shot="panel" src="shots/panel-zh.webp" width="320" height="490" alt="菜单栏面板 / The menu bar panel">
+      <img data-shot="panel" src="shots/panel-zh.webp" width="320" height="490" alt="bowel 的菜单栏面板" en:alt="bowel's menu bar panel">
     </figure>
   </div>
 </section>
@@ -119,7 +169,7 @@
 <!-- Skins -->
 <section id="skins" class="skins">
   <p class="tag"><span class="zh">皮肤</span><span class="en">Skins</span></p>
-  <h2><span class="zh">六种皮肤</span><span class="en">Six skins</span></h2>
+  <h2><span class="zh">十三种皮肤</span><span class="en">Thirteen skins</span></h2>
   <p class="sub"><span class="zh">配色、字体、圆角和质感一起变，底层功能完全一样。</span><span class="en">Colors, typography, corners, and texture all change together, while core features stay identical.</span></p>
   <div class="skin-tabs" role="tablist">
     <button role="tab" aria-selected="true" data-skin="paper" style="--a:#DDFB4C"><i></i><span class="zh">纸墨</span><span class="en">Paper</span></button>
@@ -128,6 +178,13 @@
     <button role="tab" data-skin="neon" style="--a:#FF3FA4"><i></i><span class="zh">霓虹</span><span class="en">Neon</span></button>
     <button role="tab" data-skin="blueprint" style="--a:#FFD166"><i></i><span class="zh">蓝图</span><span class="en">Blueprint</span></button>
     <button role="tab" data-skin="sakura" style="--a:#E45A8A"><i></i><span class="zh">樱</span><span class="en">Sakura</span></button>
+    <button role="tab" data-skin="shanshui" style="--a:#C8372D"><i></i><span class="zh">山水</span><span class="en">Shanshui</span></button>
+    <button role="tab" data-skin="celadon" style="--a:#3E9C82"><i></i><span class="zh">青瓷</span><span class="en">Celadon</span></button>
+    <button role="tab" data-skin="dunhuang" style="--a:#1E8573"><i></i><span class="zh">敦煌</span><span class="en">Dunhuang</span></button>
+    <button role="tab" data-skin="dusk" style="--a:#FF9E7A"><i></i><span class="zh">暮色</span><span class="en">Dusk</span></button>
+    <button role="tab" data-skin="aurora" style="--a:#5FF0B0"><i></i><span class="zh">极光</span><span class="en">Aurora</span></button>
+    <button role="tab" data-skin="obsidian" style="--a:#FF7A1A"><i></i><span class="zh">黑曜</span><span class="en">Obsidian</span></button>
+    <button role="tab" data-skin="riso" style="--a:#FF48A0"><i></i><span class="zh">孔版</span><span class="en">Riso</span></button>
   </div>
   <p class="skin-note">
     <span data-note="paper"><span class="zh">暖白纸面与墨色，克制安详</span><span class="en">Warm white paper and deep ink, quiet and minimal</span></span>
@@ -136,9 +193,16 @@
     <span data-note="neon" hidden><span class="zh">深紫底色上发光的品红与青色</span><span class="en">Glowing magenta and cyan over deep midnight purple</span></span>
     <span data-note="blueprint" hidden><span class="zh">工程蓝底、背景网格与工程制图字体</span><span class="en">Engineering blue, background grid, and technical type</span></span>
     <span data-note="sakura" hidden><span class="zh">樱花粉调、圆润边角与轻柔飘落的花瓣</span><span class="en">Cherry blossom pink, soft corners, and falling petals</span></span>
+    <span data-note="shanshui" hidden><span class="zh">宣纸底色、衬线标题与朱印红，远山隐在雾里</span><span class="en">Rice paper, serif headlines and seal red, with hills fading into mist</span></span>
+    <span data-note="celadon" hidden><span class="zh">粉青釉色、衬线标题与细细的开片</span><span class="en">Pale green glaze, serif headlines and a fine crackle</span></span>
+    <span data-note="dunhuang" hidden><span class="zh">壁画的土黄、石青、石绿与朱砂</span><span class="en">A mural's ochre, azurite, malachite and cinnabar</span></span>
+    <span data-note="dusk" hidden><span class="zh">靛蓝的天沉向一线暖光</span><span class="en">An indigo sky sinking to a line of warm light</span></span>
+    <span data-note="aurora" hidden><span class="zh">极夜深蓝上垂下的绿与紫，还有几点星</span><span class="en">Curtains of green and violet over a polar night, with a few stars</span></span>
+    <span data-note="obsidian" hidden><span class="zh">纯黑、细线与一点余烬的橙</span><span class="en">True black, hairlines and one ember of orange</span></span>
+    <span data-note="riso" hidden><span class="zh">孔版印刷：蓝墨、荧光粉与网点</span><span class="en">Risograph print: blue ink, fluorescent pink and halftone dots</span></span>
   </p>
   <figure class="window skin-window">
-    <img id="skin-img" src="shots/skin-paper-zh.webp" width="1060" height="760" loading="lazy" alt="皮肤预览 / Skin preview">
+    <img id="skin-img" src="shots/skin-paper-zh.webp" width="1060" height="760" loading="lazy" alt="bowel 的皮肤预览" en:alt="A preview of bowel's skins">
   </figure>
 </section>
 
@@ -158,7 +222,7 @@
         <li><i style="--c:#9a968c"></i><span class="zh">直连</span><span class="en">Direct</span></li>
       </ul>
     </div>
-    <figure class="shot"><img data-shot="routes" src="shots/routes-zh.webp" width="1060" height="760" loading="lazy" alt="路由的候选节点 / A route's candidate nodes"></figure>
+    <figure class="shot"><img data-shot="routes" src="shots/routes-zh.webp" width="1060" height="760" loading="lazy" alt="bowel 中一条路由的候选节点" en:alt="A route's candidate nodes in bowel"></figure>
   </article>
 
   <article class="feature flip">
@@ -172,7 +236,7 @@
         <span class="badge warn"><span class="zh">未知</span><span class="en">Unknown</span></span>
       </div>
     </div>
-    <figure class="shot"><img data-shot="map" src="shots/map-zh.webp" width="1060" height="760" loading="lazy" alt="出口地图 / The exit map"></figure>
+    <figure class="shot"><img data-shot="map" src="shots/map-zh.webp" width="1060" height="760" loading="lazy" alt="bowel 的出口位置地图" en:alt="bowel's map of exit locations"></figure>
   </article>
 
   <article class="feature">
@@ -182,7 +246,7 @@
       <p><span class="zh">查看各个应用的实时连接与流量，也可以随时把网站指给其他路由。</span><span class="en">View live connections and traffic by app, and adjust routes on the fly.</span></p>
       <p class="mono">api.openai.com → openai.com → <span class="zh">AI 服务</span><span class="en">AI services</span></p>
     </div>
-    <figure class="shot"><img data-shot="activity" src="shots/activity-zh.webp" width="1060" height="760" loading="lazy" alt="日志页 / The log"></figure>
+    <figure class="shot"><img data-shot="activity" src="shots/activity-zh.webp" width="1060" height="760" loading="lazy" alt="bowel 的连接日志" en:alt="bowel's connection log"></figure>
   </article>
 
   <article class="feature flip">
@@ -192,7 +256,7 @@
       <p><span class="zh">支持导入订阅链接、节点链接、配置文件或通过扫码添加节点。</span><span class="en">Import nodes via subscription URLs, node links, config files, or QR scans.</span></p>
       <p class="mono">vmess:// · vless:// · trojan:// · ss:// · hysteria2:// · tuic://</p>
     </div>
-    <figure class="shot"><img data-shot="providers" src="shots/providers-zh.webp" width="1060" height="760" loading="lazy" alt="提供商页 / Providers"></figure>
+    <figure class="shot"><img data-shot="providers" src="shots/providers-zh.webp" width="1060" height="760" loading="lazy" alt="bowel 的节点来源页：订阅与用量" en:alt="bowel's Providers page: subscriptions and usage"></figure>
   </article>
 
   <article class="feature">
@@ -201,7 +265,7 @@
       <h2><span class="zh">规则</span><span class="en">Rules</span></h2>
       <p><span class="zh">支持按域名、关键词或 IP 段添加规则，并能直接测试分流效果。</span><span class="en">Add rules by domain, keyword, or IP block, and test routing directly.</span></p>
     </div>
-    <figure class="shot settings"><img data-shot="settings-rules" src="shots/settings-rules-zh.webp" width="760" height="760" loading="lazy" alt="设置 › 规则 / Settings › Rules"></figure>
+    <figure class="shot settings"><img data-shot="settings-rules" src="shots/settings-rules-zh.webp" width="760" height="760" loading="lazy" alt="bowel 设置中的分流规则" en:alt="Routing rules in bowel's settings"></figure>
   </article>
 
 </section>
@@ -223,7 +287,7 @@
       <span><span class="zh">不允许</span><span class="en">Don't allow</span></span>
     </div>
   </div>
-  <figure class="shot settings dark"><img data-shot="settings-mcp" data-dark="1" src="shots/settings-mcp-zh-dark.webp" width="760" height="760" loading="lazy" alt="设置 › MCP / Settings › MCP"></figure>
+  <figure class="shot settings dark"><img data-shot="settings-mcp" data-dark="1" src="shots/settings-mcp-zh-dark.webp" width="760" height="760" loading="lazy" alt="bowel 设置中的 MCP 服务" en:alt="The MCP server in bowel's settings"></figure>
 </section>
 
 <!-- More -->
@@ -236,6 +300,18 @@
   <div class="cell">
     <h3>TUN <span class="badge">macOS</span></h3>
     <p><span class="zh">接管不走系统代理的程序，首次开启时需要一次管理员授权。</span><span class="en">Route traffic from apps that bypass system proxies, requiring admin permission once.</span></p>
+  </div>
+  <div class="cell">
+    <h3><span class="zh">开发工具</span><span class="en">Developer tools</span> <span class="badge">macOS</span></h3>
+    <p><span class="zh">Docker、终端和 Git 不读系统代理。bowel 列出哪些没有接入，点一下写好它们自己的配置，撤销时原样删除。</span><span class="en">Docker, the terminal and Git ignore the system proxy. bowel lists which ones aren't connected, writes their own config in one click, and removes it cleanly when you undo.</span></p>
+  </div>
+  <div class="cell">
+    <h3><span class="zh">下载源</span><span class="en">Download sources</span> <span class="badge">macOS</span></h3>
+    <p><span class="zh">实测 npm、pip、Go 和 Cargo 的官方源与各个镜像，点一下换源。当前的源连不上时，一键换到最快的那个。</span><span class="en">Measures the official source and each mirror for npm, pip, Go and Cargo, and switches in one click. When the current source stops answering, one click moves you to the fastest one that does.</span></p>
+  </div>
+  <div class="cell">
+    <h3><span class="zh">内网不受影响</span><span class="en">Private networks stay direct</span> <span class="badge">macOS</span></h3>
+    <p><span class="zh">局域网、Tailscale 和公司 VPN 的地址自动直连，全局模式下也一样。</span><span class="en">Addresses on your LAN, Tailscale and company VPN go direct automatically, in global mode too.</span></p>
   </div>
   <div class="cell">
     <h3><span class="zh">菜单栏</span><span class="en">Menu bar</span></h3>

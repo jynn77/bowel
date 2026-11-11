@@ -42,7 +42,7 @@ func TestProviderList(t *testing.T) {
 			t.Fatalf("open = %q", u.prov.open)
 		}
 		shot(t, tt, "providers-open"+suffix)
-		for _, s := range []string{"出口位置", "香港 03 IPLC", "实测", "按名称", "Shadowsocks", "默认", "流媒体", "41 ms", "超时", "还有 37 个节点…", "重命名", "停用", "删除"} {
+		for _, s := range []string{"出口位置", "香港 03 IPLC", "实测", "按名称", "Shadowsocks", "其他流量", "流媒体", "41 ms", "超时", "还有 37 个节点…", "重命名", "停用", "删除"} {
 			if !tt.HasText(s) {
 				t.Errorf("open row lacks %q: %q", s, tt.Texts())
 			}

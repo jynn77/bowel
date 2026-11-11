@@ -13,6 +13,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/oboo/moho/internal/netif"
+	"github.com/oboo/moho/internal/nowindow"
 )
 
 // Env is what this machine's networks look like now.
@@ -23,6 +26,10 @@ type Env struct {
 	// DefaultTunnels are the tunnels that hold the default route, Tailscale
 	// aside: a proxy's TUN, this one's included while it is on.
 	DefaultTunnels []string `json:"defaultTunnels,omitempty"`
+	// PrimaryIface is the physical interface that holds the default route.
+	PrimaryIface string `json:"primaryIface,omitempty"`
+	// IPv6 is what automatic IPv6 found; zero unless the setting is Auto.
+	IPv6 IPv6State `json:"ipv6"`
 }
 
 // Tailscale is its state. Iface is "" unless it is up.
@@ -104,7 +111,7 @@ func (e Env) Detected() bool {
 // tailscaleBins are where its CLI is, as an app opened from Finder has
 // little of the shell's PATH.
 var tailscaleBins = []string{
-	"tailscale", "/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale",
+	"tailscale", "/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale", "/usr/bin/tailscale", "/usr/sbin/tailscale",
 	"/Applications/Tailscale.app/Contents/MacOS/Tailscale",
 	`C:\Program Files\Tailscale\tailscale.exe`,
 }
@@ -116,9 +123,7 @@ func detectTailscale(ctx context.Context) Tailscale {
 			continue
 		}
 		c, cancel := context.WithTimeout(ctx, 3*time.Second)
-		cmd := exec.CommandContext(c, path, "status", "--json")
-		hideWindow(cmd)
-		out, err := cmd.Output()
+		out, err := nowindow.CommandContext(c, path, "status", "--json").Output()
 		cancel()
 		if err != nil && len(out) == 0 {
 			return Tailscale{Installed: true}
@@ -250,15 +255,150 @@ type Route struct {
 	Iface   string
 }
 
-// isTunnel says whether an interface's name is a VPN's. bridge and en
-// interfaces are not: the core's DIRECT already reaches their networks.
+// isTunnel says whether an interface is a VPN's: by its name, and where
+// names are free (Linux, Windows) by what the system says it is. bridge
+// and en interfaces are not: the core's DIRECT already reaches their
+// networks.
 func isTunnel(name string) bool {
-	for _, p := range []string{"utun", "ppp", "ipsec", "tun", "tap", "wg", "zt", "feth", "gpd", "nordlynx"} {
+	return tunnelName(name) || netif.Tunnel(name)
+}
+
+func tunnelName(name string) bool {
+	for _, p := range []string{"utun", "ppp", "ipsec", "tun", "tap", "wg", "zt", "feth", "gpd", "nordlynx", "tailscale"} {
 		if strings.HasPrefix(name, p) {
 			return true
 		}
 	}
 	return false
+}
+
+// fromSystem turns the system's routes into the ones read here, the
+// default route traffic takes first: applyRoutes takes the first that is
+// off a tunnel for the primary interface.
+func fromSystem(rs []netif.Route) []Route {
+	rs = slices.Clone(rs)
+	slices.SortStableFunc(rs, func(a, b netif.Route) int {
+		if a.Default != b.Default {
+			if a.Default {
+				return -1
+			}
+			return 1
+		}
+		if !a.Default {
+			return 0
+		}
+		if a.Main != b.Main {
+			if a.Main {
+				return -1
+			}
+			return 1
+		}
+		return a.Metric - b.Metric
+	})
+	out := make([]Route, 0, len(rs))
+	for _, r := range rs {
+		// An IPv6 default says nothing of where IPv4 leaves, and the
+		// primary interface is IPv4's.
+		if r.Default && r.Prefix.IsValid() && !r.Prefix.Addr().Is4() {
+			continue
+		}
+		o := Route{Default: r.Default, Iface: r.Iface}
+		if !r.Default {
+			o.Prefix = r.Prefix
+		}
+		out = append(out, o)
+	}
+	return out
+}
+
+var resolvedLink = regexp.MustCompile(`^Link \d+ \(([^)]+)\):\s*(.*)$`)
+
+// resolvedLinks reads `resolvectl dns` or `resolvectl domain`: what each
+// link has, a long list going on over indented lines.
+//
+//	Global:
+//	Link 2 (enp3s0): 192.168.1.1
+//	Link 5 (tailscale0): tail17b34.ts.net ~corp.example
+func resolvedLinks(text string) map[string][]string {
+	out := map[string][]string{}
+	cur := ""
+	for _, line := range strings.Split(text, "\n") {
+		if m := resolvedLink.FindStringSubmatch(strings.TrimRight(line, " \r")); m != nil {
+			cur = m[1]
+			out[cur] = append(out[cur], strings.Fields(m[2])...)
+		} else if cur != "" && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")) {
+			out[cur] = append(out[cur], strings.Fields(line)...)
+		} else {
+			cur = ""
+		}
+	}
+	return out
+}
+
+// parseResolved reads systemd-resolved's links into the domains the
+// system asks servers of their own about: the routing domains ("~name")
+// of any link, and a tunnel's search domains too. The search domain of
+// the network the machine is on is not one: its servers are the default.
+func parseResolved(dns, domains string, own func(server string) bool, tunnel func(iface string) bool) []Resolver {
+	servers := resolvedLinks(dns)
+	byLink := resolvedLinks(domains)
+	links := make([]string, 0, len(byLink))
+	for l := range byLink {
+		links = append(links, l)
+	}
+	slices.Sort(links)
+	var out []Resolver
+	for _, link := range links {
+		var ss []string
+		for _, s := range servers[link] {
+			s, _, _ = strings.Cut(s, "#") // the name its certificate is for
+			if i := strings.Index(s, "%"); i >= 0 && !strings.Contains(s, "]") {
+				s = s[:i]
+			}
+			if s == "" || (own != nil && own(s)) {
+				continue
+			}
+			ss = append(ss, s)
+		}
+		if len(ss) == 0 {
+			continue
+		}
+		for _, d := range byLink[link] {
+			routing := strings.HasPrefix(d, "~")
+			d = cleanDomain(strings.TrimPrefix(d, "~"))
+			if d == "" || d == "local" || strings.HasSuffix(d, ".arpa") || !(routing || tunnel(link)) {
+				continue
+			}
+			out = append(out, Resolver{Domain: d, Servers: slices.Clone(ss), Iface: link})
+		}
+	}
+	return dedupeResolvers(out)
+}
+
+// splitResolvers are the domains Windows sends to servers of their own,
+// from one rule of its name resolution policy table or one adapter:
+// names as ".corp.example" or "corp.example", servers separated by
+// semicolons, commas or spaces.
+func splitResolvers(names []string, servers, iface string, own func(server string) bool) []Resolver {
+	var ss []string
+	for _, s := range strings.FieldsFunc(servers, func(r rune) bool { return r == ';' || r == ',' || r == ' ' }) {
+		if own != nil && own(s) {
+			continue
+		}
+		ss = append(ss, s)
+	}
+	if len(ss) == 0 {
+		return nil
+	}
+	var out []Resolver
+	for _, n := range names {
+		d := cleanDomain(n)
+		if d == "" || d == "local" || strings.HasSuffix(d, ".arpa") {
+			continue
+		}
+		out = append(out, Resolver{Domain: d, Servers: slices.Clone(ss), Iface: iface})
+	}
+	return out
 }
 
 func tunnelKind(name string) string {
@@ -426,6 +566,12 @@ func (e *Env) applyRoutes(routes []Route) {
 	e.VPNs, e.DefaultTunnels = vpn, holders
 	e.Tailscale.Subnets = subnets
 	e.Tailscale.Shadowed = shadowed(routes, e.Tailscale.Iface)
+	for _, r := range routes {
+		if r.Default && !isTunnel(r.Iface) {
+			e.PrimaryIface = r.Iface
+			break
+		}
+	}
 }
 
 // shadowed says whether the route that takes the tailnet's addresses is

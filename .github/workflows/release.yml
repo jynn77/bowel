@@ -192,12 +192,13 @@ jobs:
           MYGO_UPDATER_PRIVATE_KEY: ${{ env.PUBLISH == 'true' && secrets.MYGO_UPDATER_PRIVATE_KEY || '' }}
         run: go tool mygo build -platform "${{ matrix.goos }}/${{ matrix.goarch }}" .
 
-      - name: Repackage the Debian package as an rpm
+      - name: Add the removal script to the Debian package and repackage it as an rpm
         if: matrix.goos == 'linux'
         env:
           DIR: build/linux-${{ matrix.goarch }}
         run: |
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
+          ./scripts/add-deb-postrm.sh "$DIR"/bowel_*.deb
           ./scripts/build-rpm.sh "$DIR"/bowel_*.deb "$DIR"
 
       - uses: actions/upload-artifact@v7
@@ -207,6 +208,7 @@ jobs:
           path: |
             build/*/bowel-setup-*.exe
             build/*/install.ps1
+            build/linux-amd64/install.sh
             build/*/bowel-*-linux-*.tar.gz
             build/*/bowel-*-windows-*.tar.gz
             build/*/bowel-*.delta
@@ -474,5 +476,5 @@ jobs:
           cd aur
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add PKGBUILD .SRCINFO
+          git add PKGBUILD .SRCINFO bowel-bin.install
           git diff --cached --quiet || { git commit -m "bowel $VERSION" && git push origin HEAD:master; }

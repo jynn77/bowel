@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,7 +46,7 @@ tun: {enable: true}
 
 func mustParse(t *testing.T, src string) *Imported {
 	t.Helper()
-	im, err := ParseImported([]byte(src))
+	im, err := ParseImported([]byte(src), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +173,7 @@ func TestImportedRefusesWhatCannotWork(t *testing.T) {
 		"filesets": head + "proxy-groups:\n  - {name: G, type: select, proxies: [A]}\nrule-providers:\n  r: {type: file, path: ./r.yaml, behavior: domain}\nrules: ['RULE-SET,r,G', 'MATCH,G']\n",
 		"filenode": head + "proxy-providers:\n  n: {type: file, path: ./n.yaml}\nproxy-groups:\n  - {name: G, type: select, use: [n]}\nrules: [MATCH,G]\n",
 	} {
-		if im, err := ParseImported([]byte(src)); err == nil {
+		if im, err := ParseImported([]byte(src), nil); err == nil {
 			t.Errorf("%s: accepted: %+v", name, im)
 		}
 	}
@@ -180,7 +181,7 @@ func TestImportedRefusesWhatCannotWork(t *testing.T) {
 
 func TestImportedOfNodeListIsNone(t *testing.T) {
 	for _, src := range []string{"proxies:\n  - {name: A, type: direct}\n", "vmess://abcd", "dmVzczovL2FiY2Q="} {
-		if im, err := ParseImported([]byte(src)); im != nil || err != nil {
+		if im, err := ParseImported([]byte(src), nil); im != nil || err != nil {
 			t.Errorf("%q: %v, %v", src, im, err)
 		}
 	}
@@ -310,5 +311,50 @@ func TestImportedTheCoreAccepts(t *testing.T) {
 	cmd := exec.Command(bin, "-t", "-d", dir, "-f", path)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+// TestImportedLocalFileProviders: a `type: file` provider is read from the
+// file kept under its name, never from the path the config wrote.
+func TestImportedLocalFileProviders(t *testing.T) {
+	src := `
+proxy-providers:
+  nodes: {type: file, path: /etc/passwd, path-in-bundle: x, filter: JP, health-check: {enable: true, url: "http://t", interval: 300}}
+  spare: {type: file, path: ./x.yaml}
+proxy-groups:
+  - {name: G, type: select, use: [nodes]}
+rules: ['MATCH,G']
+`
+	var asked []string
+	have := map[string][]string{"nodes": {"/store/abc.txt"}}
+	local := func(name string) []string { asked = append(asked, name); return have[name] }
+	im, err := ParseImported([]byte(src), local)
+	if err != nil || im == nil {
+		t.Fatal(im, err)
+	}
+	if !slices.Equal(asked, []string{"nodes"}) {
+		t.Errorf("asked for %v: an unused provider needs no file", asked)
+	}
+	cfg := buildImported(t, Input{Imported: im})
+	n := cfg["proxy-providers"].(map[string]any)["nodes"].(map[string]any)
+	if n["type"] != "file" || n["path"] != "/store/abc.txt" || n["path-in-bundle"] != nil || n["filter"] != "JP" || n["health-check"] == nil {
+		t.Errorf("nodes = %v", n)
+	}
+	if use := stringsOf(groupNamed(t, cfg, "G")["use"]); !slices.Equal(use, []string{"nodes"}) {
+		t.Errorf("use = %v", use)
+	}
+
+	have = nil
+	_, err = ParseImported([]byte(src), local)
+	var missing *MissingFile
+	if !errors.As(err, &missing) || missing.Name != "nodes" {
+		t.Errorf("err = %v", err)
+	}
+	have = map[string][]string{"nodes": {"/a", "/b"}}
+	if _, err = ParseImported([]byte(src), local); err == nil || errors.As(err, &missing) {
+		t.Errorf("two files under one name: %v", err)
+	}
+	if _, err = ParseImported([]byte(src), nil); err == nil || errors.As(err, &missing) {
+		t.Errorf("no store: %v", err)
 	}
 }

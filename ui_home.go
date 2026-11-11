@@ -20,6 +20,7 @@ import (
 
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/routes"
+	"github.com/oboo/moho/internal/settings"
 )
 
 type homeUI struct {
@@ -41,7 +42,12 @@ type homeUI struct {
 	toolArmed  string
 	toolsArmed bool
 	toolsAt    time.Time
-	hist       []Tick // the last 90 seconds
+	// The download sources under them: the list shown, and the source
+	// whose other ways are listed.
+	srcList bool
+	srcOpen string
+	srcAt   time.Time
+	hist    []Tick // the last 90 seconds
 
 	// What each cell showed in the last frame, and a view folding away.
 	shown   map[string]shownView
@@ -51,6 +57,10 @@ type homeUI struct {
 	// the frame it was built: frame counts the board's frames.
 	copies map[string]shareRec
 	frame  int
+	// The shared pieces in place, in the order a frame builds them: an
+	// Element is not kept beyond the call that built it.
+	pieces []*ui.Handle
+	placed int
 
 	mapView mapView               // the expanded map's pan and zoom
 	walls   map[string]*wallPaths // twisted borders' paths, by cell
@@ -77,6 +87,16 @@ func (h *homeUI) pushTick(t Tick) {
 	if len(h.hist) > 90 {
 		h.hist = h.hist[len(h.hist)-90:]
 	}
+}
+
+// moved says whether any second of the history carried traffic.
+func (h *homeUI) moved() bool {
+	for _, t := range h.hist {
+		if t.Down > 0 || t.Up > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // Matches: identities shared between a cell's views.
@@ -144,7 +164,7 @@ var morphText = ui.ContentTransition{Morph: true}
 // frame before), and shows once the view has arrived.
 type sharedPiece struct {
 	key   string
-	at    ui.Element // in place, in its view
+	at    *ui.Handle // in place, in its view
 	build func(c *ui.Context) ui.Element
 }
 
@@ -173,10 +193,10 @@ func (u *UI) share(c *ui.Context, m any, key string, build func(c *ui.Context) u
 	case shareCell == "":
 		return e.Transition(fly(m))
 	case noFly:
-		leftOver = append(leftOver, sharedPiece{key: key, at: e})
+		leftOver = append(leftOver, sharedPiece{key: key, at: u.home.place(e)})
 		return e.Transition(fly(m))
 	}
-	shared = append(shared, sharedPiece{key: key, at: e, build: build})
+	shared = append(shared, sharedPiece{key: key, at: u.home.place(e), build: build})
 	if shareLift && u.home.hadCopy(shareCell+"/"+key) {
 		return e.Opacity(0) // its copy shows it on its way
 	}
@@ -214,6 +234,18 @@ func glide(e ui.Element, name string, v float32, move bool) float32 {
 	return e.AnimateTo(name, v, motion)
 }
 
+// place binds e, a shared piece in place, to a handle of this frame, by
+// which drawShared finds it once its view is built.
+func (h *homeUI) place(e ui.Element) *ui.Handle {
+	if h.placed == len(h.pieces) {
+		h.pieces = append(h.pieces, new(ui.Handle))
+	}
+	r := h.pieces[h.placed]
+	h.placed++
+	e.Bind(r)
+	return r
+}
+
 func (h *homeUI) hadCopy(k string) bool {
 	r, ok := h.copies[k]
 	return ok && r.frame == h.frame-1
@@ -231,7 +263,8 @@ func (u *UI) drawShared(c *ui.Context, cell string, in ui.Element, lift bool) {
 		k := cell + "/" + s.key
 		had := h.hadCopy(k)
 		rel := h.copies[k].rel
-		if b := s.at.LayoutBounds(); view.W > 0 && (b.W > 0 || b.H > 0) {
+		at := c.Resolve(*s.at)
+		if b := at.LayoutBounds(); view.W > 0 && (b.W > 0 || b.H > 0) {
 			rel = steady(rel, ui.Rect{X: b.X - view.X, Y: b.Y - view.Y, W: b.W, H: b.H})
 		} else if !had {
 			continue // no place for it yet: its piece shows in place
@@ -239,7 +272,7 @@ func (u *UI) drawShared(c *ui.Context, cell string, in ui.Element, lift bool) {
 		move := lift && had
 		cp := s.build(c.Key("share-" + s.key))
 		if shareTrace != nil && move {
-			shareTrace(k, cp.LayoutBounds(), s.at.LayoutBounds())
+			shareTrace(k, cp.LayoutBounds(), at.LayoutBounds())
 		}
 		// Only its place glides: laid out at its own size all the way, a
 		// title never wraps in a box narrower than it on its way; the
@@ -251,7 +284,7 @@ func (u *UI) drawShared(c *ui.Context, cell string, in ui.Element, lift bool) {
 	}
 	for _, s := range leftOver {
 		if keys[s.key] {
-			s.at.Opacity(0)
+			c.Resolve(*s.at).Opacity(0)
 		}
 	}
 	shared, leftOver = shared[:0], leftOver[:0]
@@ -357,16 +390,23 @@ func (u *UI) homePage(c *ui.Context, p *pal) {
 	} else {
 		h.walls, h.lines = nil, nil
 	}
+	// The board's size is the last frame's. A board that had no last frame
+	// (the window just opened, or the page was just come back to) is the
+	// window under the title bar: a size made up here would show the board
+	// through the cells' end for a frame and then move every cell to its
+	// place, which reads as a blank strip and a bounce.
 	r := board.LayoutBounds()
 	w, hh := r.W, r.H
 	if w <= 0 {
-		w, hh = 1060, 686
+		w, hh = c.Size()
+		hh -= titleBarHeight(c)
 	}
 	cols, rows := u.tracks(h.x)
 	final := boxes(cols, rows, w, hh)
 	ncols, nrows := u.tracks("")
 	normal := boxes(ncols, nrows, w, hh)
 	h.frame++
+	h.placed = 0
 	for k, r := range h.copies {
 		if r.frame < h.frame-1 {
 			delete(h.copies, k)
@@ -1008,6 +1048,9 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 		if s.Takeover.System.Status == "hijacked" {
 			col, sub = p.signal, i18n.T("被其他程序改掉了", "Changed by another app")
 		}
+		if s.Takeover.System.Status == "error" {
+			col, sub = p.signal, i18n.T("接管失败", "Takeover failed")
+		}
 		compact(c, p, v, id, i18n.T("接管", "Takeover"), func(size float32) {
 			t := dispIn(ui.Text(c, val), p, col).FontSize(size).FontWeight(600).TextColor(col)
 			if v == "mini" || v == "strip" {
@@ -1036,7 +1079,7 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 			}
 		}
 		if v == "strip" {
-			compact(c, p, v, id, i18n.T("其他路由", "Other routes"), func(float32) {
+			compact(c, p, v, id, i18n.T("分流", "By rule"), func(float32) {
 				ui.Row(c).Gap(14).Children(func() {
 					for _, r := range proxied {
 						ui.Row(c).Gap(5).Children(func() {
@@ -1052,7 +1095,7 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 			}, "", nil)
 			return
 		}
-		compact(c, p, v, id, i18n.T("其他路由", "Other routes"), func(float32) {
+		compact(c, p, v, id, i18n.T("分流", "By rule"), func(float32) {
 			ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
 				for _, r := range proxied {
 					swatch(c, p.routeColor(r.ID), 8)
@@ -1150,7 +1193,7 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 	h := col.LayoutBounds().H
 	tight := h > 0 && h < 300
 	col.Children(func() {
-		label := i18n.T("当前出口 · 默认路由", "Current exit · Default route")
+		label := i18n.T("其他流量的出口", "Exit for other traffic")
 		if s.Mode == "global" {
 			label = i18n.T("当前出口 · 全局", "Current exit · Global")
 		}
@@ -1184,7 +1227,7 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 			case switching:
 				shimmer(ui.Text(c, i18n.T("正在切换并测速…", "Switching and testing…")).FontSize(13.5).TextColor(p.ink2), true, p)
 			case !s.Takeover.On:
-				ui.Text(c, i18n.T("所有应用都直接连接互联网，流量不经过 bowel。", "Every app connects to the internet directly; no traffic goes through bowel.")).FontSize(13.5).TextColor(p.ink2)
+				ui.Text(c, i18n.T("应用直接连接互联网，除非代理指向 bowel 的端口。", "Apps connect to the internet directly, unless they are pointed at bowel’s port.")).FontSize(13.5).TextColor(p.ink2)
 			case ok:
 				ui.Column(c).Gap(4).Children(func() {
 					// One line: a long provider name ends in "…" rather than
@@ -1207,7 +1250,7 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 							ui.Span{Text: u.providerName(ex.Provider), Size: 13.5, Weight: 600, Color: p.ink}).
 							MaxLines(1).Ellipsis("…").Shrink(1).MinWidth(0).Tooltip(u.providerName(ex.Provider))
 					})
-					note := fmt.Sprintf(i18n.T("没命中其他规则的流量从这里出去，约占 %d%%。", "Traffic no other rule matches leaves through here, about %d%%."), int(u.route("default").Share*100+.5))
+					note := fmt.Sprintf(i18n.T("没命中规则的流量从这里出去，约占 %d%%。", "Traffic no rule matches leaves through here, about %d%%."), int(u.route("default").Share*100+.5))
 					if s.Mode == "global" {
 						note = i18n.T("全局模式下，所有流量都从这里出去。", "In global mode, all traffic leaves through here.")
 					}
@@ -1216,6 +1259,8 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 						t.MaxLines(1).Ellipsis("…").Tooltip(note)
 					}
 				})
+			case u.route("default").Direct && s.Mode == "rule" && len(s.Nodes) > 0:
+				ui.Text(c, fmt.Sprintf(i18n.T("没命中规则的流量不经过节点，约占 %d%%。命中规则的流量仍走各自的节点。", "Traffic no rule matches uses no node, about %d%%. Traffic rules match still takes its own nodes."), int(u.route("default").Share*100+.5))).FontSize(13.5).TextColor(p.ink2)
 			case s.Mode == "direct":
 				ui.Text(c, i18n.T("直连模式：所有流量不经过任何节点，规则暂停。适合排查网络问题。", "Direct mode: no traffic goes through any node and rules are paused. Useful for troubleshooting the network.")).FontSize(13.5).TextColor(p.ink2)
 			default:
@@ -1261,9 +1306,14 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 						u.do(func() error { return u.app.selectNode("default", "") })
 					}
 				})
+				if s.Mode == "rule" && s.Imported == nil {
+					pill(c, p, i18n.T("直接连接", "Direct"), false).OnClick(func() { u.setExitDirect(routes.Default, true) })
+				}
 			})
 		} else if len(s.Nodes) == 0 && s.Mode != "direct" {
 			pill(c, p, i18n.T("添加提供商", "Add provider"), true).AlignSelf(ui.Start).OnClick(func() { u.page = "providers" })
+		} else if u.route("default").Direct && s.Mode == "rule" && s.Imported == nil {
+			pill(c, p, i18n.T("改为走节点", "Use a node"), true).AlignSelf(ui.Start).OnClick(func() { u.setExitDirect(routes.Default, false) })
 		}
 	})
 }
@@ -1301,14 +1351,6 @@ func tunInstalling() string {
 		return i18n.T("正在准备内核…", "Preparing the core…")
 	}
 	return i18n.T("正在安装，请在系统弹窗中确认…", "Installing; confirm in the system dialog…")
-}
-
-// tunFirstRun is what the interface says before TUN is turned on once.
-func tunFirstRun() string {
-	if runtime.GOOS == "windows" {
-		return i18n.T("未使用 · 首次开启需要以管理员身份运行 bowel", "Not in use · The first time, bowel must run as an administrator")
-	}
-	return i18n.T("未使用 · 第一次开启时，macOS 会请求管理员授权", "Not in use · The first time it's turned on, macOS asks for an administrator's authorization")
 }
 
 // entryChoices are the two ways of taking over, to press.
@@ -1370,9 +1412,12 @@ func stabilityBarsIn(c *ui.Context, p *pal, ink ui.Color, hist []int, w, h float
 
 func (u *UI) heroExpanded(c *ui.Context, p *pal, w float32) {
 	ex, ok := u.exitNode()
-	u.detailHead(c, p, "hero", i18n.T("当前出口 · 默认路由 · 选择出口", "Current exit · Default route · Choose exit"), func() {
+	u.detailHead(c, p, "hero", i18n.T("其他流量的出口", "Exit for other traffic"), func() {
 		u.share(c, exitMatch{"default"}, "exit", func(c *ui.Context) ui.Element {
 			if !ok {
+				if u.route(routes.Default).Direct {
+					return detailTitle(c, p, i18n.T("直接连接", "Direct"))
+				}
 				return detailTitle(c, p, i18n.T("选择出口", "Choose exit"))
 			}
 			return flagged(c, p, ex, 22, func() {
@@ -1380,7 +1425,7 @@ func (u *UI) heroExpanded(c *ui.Context, p *pal, w float32) {
 			})
 		})
 	}, func() { u.autoSeg(c, p, "default") })
-	u.nodePicker(c, p, "default", w)
+	u.groupExit(c, p, routes.Default, w)
 }
 
 // The region bar's measures, shared by its layout and peekWidth's sums.
@@ -1586,6 +1631,11 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 		ui.Text(c, i18n.T("没有符合条件的节点", "No nodes match")).FontSize(12.5).TextColor(p.mute).Padding(30, 26)
 		return
 	}
+	// In 顺序备用 every row has the same columns, in the order or not: its
+	// place before the flag and the actions after the delays. A row leaves
+	// empty the ones it doesn't use, so the two lists' flags, names, delays
+	// and actions line up with each other and with the columns' names.
+	byOrder := q.Mode == routes.ModeOrder
 	// The columns' names, over the columns at the rows' end.
 	ui.Row(c).Gap(10).Padding(7, 26, 5, 26).AlignItems(ui.Center).Children(func() {
 		ui.Spacer(c)
@@ -1599,6 +1649,9 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 		}
 		columnHead(main, fmt.Sprintf(i18n.T("经节点请求 %s 的耗时，自动选择也按它", "Time to request %s through the node, which Auto also goes by"), r.Main.URL))
 		ui.Box(c).Width(14).Shrink(0)
+		if byOrder {
+			ui.Box(c).Width(nodeActW).Shrink(0)
+		}
 	})
 	ui.List(c.Key("nodes"), &h.nodes, len(list), func(i int) {
 		item := list[i]
@@ -1635,8 +1688,12 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 			if on {
 				ui.Box(c).Absolute().Left(0).Top(0).Bottom(0).Width(2).Background(p.ink)
 			}
-			if ordered {
-				ui.Text(c, fmt.Sprint(item.place)).FontSize(12).FontFeatures("tnum").TextColor(p.mute).Width(14).Shrink(0)
+			if byOrder {
+				place := ""
+				if ordered {
+					place = fmt.Sprint(item.place)
+				}
+				ui.Text(c, place).FontSize(12).FontFeatures("tnum").TextColor(p.mute).Width(14).Shrink(0)
 			}
 			ui.Box(c).Width(22).Shrink(0).Children(func() { flagBadge(c, p, nodeFlag(n), 12) })
 			// The name and its line give way to the delay: a long name ends
@@ -1663,15 +1720,23 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 			ui.Text(c, fmtDelay(n)).FontSize(12).FontFeatures("tnum").Width(nodeColW).Shrink(0).NoWrap().TextAlign(ui.End).TextColor(delayColor(p, n.Delay, n.Tested))
 			mark := ""
 			switch {
-			case adding:
-				mark = "＋"
 			case on && q.Mode == routes.ModeFixed:
 				mark = "✓"
 			case on:
 				mark = "◆"
 			}
 			ui.Text(c, mark).FontSize(12).Width(14).Shrink(0).TextColor(ink)
-			if ordered {
+			if !byOrder {
+				return
+			}
+			ui.Row(c).Width(nodeActW).Shrink(0).Gap(nodeActGap).Justify(ui.End).AlignItems(ui.Center).Children(func() {
+				if adding {
+					// ＋ stands where the rows above have ×, as wide as that button.
+					ui.Row(c).Size(32, 20).Shrink(0).Margin(0, -6, 0, 0).Justify(ui.Center).AlignItems(ui.Center).Children(func() {
+						ui.Text(c, "＋").FontSize(12).TextColor(ink)
+					})
+					return
+				}
 				at := item.place - 1
 				name := n.Name
 				if at > 0 {
@@ -1690,13 +1755,20 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 						q.Order = slices.DeleteFunc(slices.Clone(q.Order), func(s string) bool { return s == name })
 					})
 				})
-			}
+			})
 		})
 	}).Grow(1)
 }
 
 // nodeColW is the width of the node rows' Ping and main target columns.
-const nodeColW = 62
+// nodeActW is the width of the actions after them in 顺序备用: two icon
+// buttons (each 26 wide in the row, its last 6 DIPs hanging into the
+// row's padding) nodeActGap apart.
+const (
+	nodeColW   = 62
+	nodeActGap = 10
+	nodeActW   = 2*26 + nodeActGap
+)
 
 // siteStrip shows how long the route's other test sites take through the
 // node it uses, and opens the dialog that changes them.
@@ -1895,7 +1967,7 @@ func (u *UI) modeNormal(c *ui.Context, p *pal) {
 			}
 		})
 		note := map[string]string{
-			"rule":   fmt.Sprintf(i18n.T("按 %[1]d 条规则把流量分到 5 条路由；没命中的走默认。", "%d %s send traffic to 5 routes; what none matches takes Default."), s.RuleCount, rulesWord(s.RuleCount)),
+			"rule":   fmt.Sprintf(i18n.T("按 %[1]d 条规则分流；没命中的归「其他流量」。", "%d %s sort the traffic; what none matches is Other."), s.RuleCount, rulesWord(s.RuleCount)),
 			"global": i18n.T("所有流量都走当前出口，规则暂不生效。", "All traffic goes through the current exit; rules are paused."),
 			"direct": i18n.T("所有流量直接连接，不经过任何节点。", "All traffic connects directly, through no node."),
 		}[s.Mode]
@@ -1904,6 +1976,7 @@ func (u *UI) modeNormal(c *ui.Context, p *pal) {
 		}
 		ui.Text(c, note).FontSize(12).TextColor(p.mute).Margin(12, 0, 0, 0).MaxLines(2).Ellipsis("…").Tooltip(note)
 		u.modeToolsLine(c, p)
+		u.modeSourcesLine(c, p)
 	})
 }
 
@@ -1913,7 +1986,7 @@ func (u *UI) modeExpanded(c *ui.Context, p *pal) {
 	ui.Scroll(c).Grow(1).Padding(4, 26, 18, 26).Children(func() {
 		for _, m := range [][3]string{
 			{"rule", i18n.T("规则", "Rule"), i18n.T("按规则把流量分到不同路由。日常就用这个。", "Sends traffic to routes by rule. Use this day to day.")},
-			{"global", i18n.T("全局", "Global"), i18n.T("所有流量都走「默认」路由的出口，规则暂停。临时需要时用。", "All traffic goes through the Default route's exit and rules are paused. For when you need it briefly.")},
+			{"global", i18n.T("全局", "Global"), i18n.T("所有流量都走节点，规则暂停。临时需要时用。", "All traffic goes through a node and rules are paused. For when you need it briefly.")},
 			{"direct", i18n.T("直连", "Direct"), i18n.T("所有流量直接连接，不经过任何节点。排查网络问题时用。", "All traffic connects directly, through no node. For troubleshooting the network.")},
 		} {
 			id := m[0]
@@ -1932,6 +2005,7 @@ func (u *UI) modeExpanded(c *ui.Context, p *pal) {
 			})
 		}
 		u.toolsSection(c, p)
+		u.sourcesSection(c, p)
 	})
 }
 
@@ -2078,6 +2152,8 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 				status = i18n.T("生效中", "Active")
 			case t.System.Status == "hijacked":
 				status = i18n.T("被其他程序改掉了 · ", "Changed by another app · ") + t.System.Detail
+			case t.System.Status == "error":
+				status = i18n.T("接管失败 · ", "Takeover failed · ") + t.System.Detail
 			}
 			kv(c, p, [][2]string{{i18n.T("状态", "Status"), status}, {i18n.T("地址", "Address"), fmt.Sprintf("HTTP / HTTPS / SOCKS → 127.0.0.1:%d", t.Port)},
 				{i18n.T("自检", "Self-check"), i18n.T("每 2 秒确认系统代理仍指向 bowel", "Checks every 2 seconds that the system proxy still points at bowel")}, {i18n.T("不走代理", "Bypass"), strings.Join(t.Bypass, ", ")}})
@@ -2097,11 +2173,11 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 			case t.Tun.Status == "on":
 				status = i18n.T("生效中", "Active")
 			case t.Tun.Status == "install":
-				status = tunFirstRun()
+				status = tunInstallHint()
 			case t.Tun.Status == "error":
 				status = t.Tun.Detail
 			}
-			kv(c, p, [][2]string{{i18n.T("状态", "Status"), status}, {i18n.T("协议栈", "Stack"), i18n.T("mixed（gVisor + system）", "mixed (gVisor + system)")}, {"DNS", i18n.T("劫持 53 端口 · fake-ip", "Hijacks port 53 · fake-ip")}})
+			kv(c, p, [][2]string{{i18n.T("状态", "Status"), status}, {i18n.T("协议栈", "Stack"), tunStackText(u.snap.Settings.TunStack)}, {"DNS", tunDNSText(u.snap.Settings)}})
 		}, func() {
 			on := t.On && t.Tun.Wanted
 			if ui.Switch(c.Key("tun"), &on).Disabled(u.pending("entry:tun")).Changed() {
@@ -2120,6 +2196,9 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 				u.do(func() error { return u.app.setLan(on) })
 			}
 		})
+		if !gatewaySupported() {
+			return
+		}
 		section(c, p, i18n.T("网关", "Gateway"), i18n.T("局域网里的其他设备，把这台 Mac 当网关", "Other devices on the LAN, through this Mac as their gateway"), func() {
 			_, status := u.gatewayStatus(p)
 			addr := i18n.T("没有局域网地址", "No LAN address")
@@ -2155,11 +2234,45 @@ func kv(c *ui.Context, p *pal, rows [][2]string) {
 	})
 }
 
+// tunStackText is the TUN stack in use (core.TunStacks), with what it is.
+func tunStackText(stack string) string {
+	switch stack {
+	case "mixed":
+		return i18n.T("mixed（TCP 用 system，UDP 用 gVisor）", "mixed (system for TCP, gVisor for UDP)")
+	case "system":
+		return i18n.T("system（系统协议栈）", "system (the system's own stack)")
+	case "gvisor":
+		return i18n.T("gVisor（用户态协议栈）", "gVisor (userspace stack)")
+	}
+	return stack
+}
+
+// tunDNSText is what TUN does with DNS: which queries it takes, and how
+// the core answers them. Gateway mode answers with fake-ip whatever the
+// setting says, as core.Build does.
+func tunDNSText(s settings.Settings) string {
+	mode := s.DNSMode
+	if s.Gateway {
+		mode = "fake-ip"
+	}
+	hijack := i18n.T("劫持 ", "Hijacks ") + strings.Join(s.DNSHijack, ", ")
+	switch {
+	case len(s.DNSHijack) == 0:
+		hijack = i18n.T("不劫持", "No hijack")
+	case !slices.ContainsFunc(s.DNSHijack, func(h string) bool {
+		h = strings.TrimPrefix(strings.TrimPrefix(h, "tcp://"), "udp://")
+		return h != "any:53" && h != "0.0.0.0:53"
+	}):
+		hijack = i18n.T("劫持 53 端口", "Hijacks port 53")
+	}
+	return hijack + " · " + mode
+}
+
 // ---- Routes ----
 
 func (u *UI) routesNormal(c *ui.Context, p *pal) {
 	pad(c, 16).Children(func() {
-		cellKicker(c, p, "routes", i18n.T("其他路由", "Other routes"))
+		cellKicker(c, p, "routes", i18n.T("分流", "By rule"))
 		ui.Column(c).Margin(4, 0, 0, 0).Children(func() {
 			for _, r := range u.snap.Routes {
 				if r.ID == "default" || r.Reject {
@@ -2176,7 +2289,7 @@ func (u *UI) routeRow(c *ui.Context, p *pal, r RouteView) {
 	b := ui.ButtonBase(c.Key(rid)).Row().Gap(10).Padding(3, 0).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).
 		OnClick(func() {
 			u.home.x, u.home.query, u.home.region = "routes", "", ""
-			if !r.Direct {
+			if !r.Direct || routes.ChoosesExit(rid) && u.snap.Imported == nil {
 				u.home.sub = rid
 			}
 		})
@@ -2194,6 +2307,8 @@ func (u *UI) routeRow(c *ui.Context, p *pal, r RouteView) {
 		hasNode = hasNode && !r.Direct
 		if hasNode {
 			name, delay = n.Display, fmtDelay(n)
+		} else if r.Direct && routes.ChoosesExit(rid) && u.snap.Imported == nil {
+			delay = "—" // direct by choice, whatever it holds
 		}
 		u.share(c, exitMatch{rid}, "exit:"+rid, func(c *ui.Context) ui.Element {
 			text := func() ui.Element {
@@ -2224,7 +2339,7 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal, w float32) {
 				n, ok := u.node(r.Node)
 				u.share(c, exitMatch{r.ID}, "exit:"+r.ID, func(c *ui.Context) ui.Element {
 					if !ok {
-						return detailTitle(c, p, "—")
+						return detailTitle(c, p, u.exitWord(r))
 					}
 					return flagged(c, p, n, 22, func() {
 						// Two lines at most: a long name must leave the list its room.
@@ -2233,77 +2348,107 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal, w float32) {
 				})
 			})
 		}, func() { u.autoSeg(c, p, r.ID) })
-		u.nodePicker(c, p, r.ID, w)
+		u.groupExit(c, p, r.ID, w)
 		return
 	}
 	u.detailHead(c, p, "routes", i18n.T("路由", "Route"), func() { detailTitle(c, p, i18n.T("每类流量走哪里", "Where each kind of traffic goes")) }, func() {
 		btn(c.Key("rules"), p, i18n.T("管理路由组", "Manage route groups")).OnClick(func() { u.openRoutes(routes.Default, "") })
 	})
-	ui.Scroll(c).Grow(1).Padding(4, 16, 18, 16).Children(func() {
-		for _, r := range u.snap.Routes {
-			rid := r.ID
-			b := ui.ButtonBase(c.Key(rid)).Row().Gap(16).Padding(12, 10).AlignItems(ui.Center).Radius(p.r(8)).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2)
-			if !r.Direct {
-				b.OnClick(func() { h.sub, h.query, h.region = rid, "", "" })
-				if b.Hovered() {
-					b.Background(p.hover)
+	row := func(r RouteView) {
+		rid := r.ID
+		other := rid == routes.Default
+		canOpen := !r.Direct || routes.ChoosesExit(rid) && u.snap.Imported == nil
+		b := ui.ButtonBase(c.Key(rid)).Row().Gap(16).Padding(0, 10).Height(matchRowH).AlignItems(ui.Center).Radius(p.r(8))
+		if other {
+			b.Padding(0, 9).Background(p.card).Border(1, p.hair)
+		} else {
+			b.BorderWidth(0, 0, 1, 0).BorderColor(p.hair2)
+		}
+		if canOpen {
+			b.OnClick(func() { h.sub, h.query, h.region = rid, "", "" })
+			if b.Hovered() && !other {
+				b.Background(p.hover)
+			}
+		}
+		b.Children(func() {
+			// The route and what it holds, on two lines: the summary
+			// gives way first when the window is narrow.
+			ui.Column(c).Gap(4).Grow(1).Shrink(1).Basis(0).MinWidth(100).Height(40).Children(func() {
+				ui.Row(c).Gap(12).Height(matchNameH).AlignItems(ui.Center).Children(func() {
+					swatch(c, p.routeColor(rid), 10).Shrink(0)
+					u.share(c, routeNameMatch{rid}, "route:"+rid, func(c *ui.Context) ui.Element {
+						return ui.Text(c, r.Name).FontSize(16).FontWeight(700).TextColor(p.ink).NoWrap()
+					})
+				})
+				summary := r.Summary
+				if r.Mine > 0 {
+					summary = fmt.Sprintf(i18n.T("含你加的 %d 条 · %s", "%d of them yours · %s"), r.Mine, summary)
+				}
+				line := fmt.Sprintf(i18n.T("%[1]d 条规则 · %[3]s", "%d %s · %s"), r.Rules, rulesWord(r.Rules), summary)
+				if other {
+					line = summary
+				}
+				ui.Text(c, line).
+					FontSize(12).TextColor(p.mute).SingleLine().Shrink(1).Margin(0, 0, 0, 22)
+			})
+			name := noNodeWord(r)
+			n, hasNode := u.node(r.Node)
+			hasNode = hasNode && !r.Direct
+			if hasNode {
+				name = n.Display
+				if r.Auto {
+					name += i18n.T(" · 自动", " · Auto")
 				}
 			}
-			b.Children(func() {
-				// The route and what it holds, on two lines: the summary
-				// gives way first when the window is narrow.
-				ui.Column(c).Gap(4).Grow(1).Shrink(1).Basis(0).MinWidth(100).Children(func() {
-					ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
-						swatch(c, p.routeColor(rid), 10).Shrink(0)
-						u.share(c, routeNameMatch{rid}, "route:"+rid, func(c *ui.Context) ui.Element {
-							return ui.Text(c, r.Name).FontSize(16).FontWeight(700).TextColor(p.ink).NoWrap()
-						})
-					})
-					summary := r.Summary
-					if r.Mine > 0 {
-						summary = fmt.Sprintf(i18n.T("含你加的 %d 条 · %s", "%d of them yours · %s"), r.Mine, summary)
-					}
-					ui.Text(c, fmt.Sprintf(i18n.T("%[1]d 条规则 · %[3]s", "%d %s · %s"), r.Rules, rulesWord(r.Rules), summary)).
-						FontSize(12).TextColor(p.mute).SingleLine().Shrink(1).Margin(0, 0, 0, 22)
-				})
-				name := noNodeWord(r)
-				n, hasNode := u.node(r.Node)
-				hasNode = hasNode && !r.Direct
+			exit := func(c *ui.Context) ui.Element {
+				text := func() ui.Element {
+					return ui.Text(c, name).FontSize(15).FontWeight(600).TextColor(p.ink).SingleLine().Shrink(1).MinWidth(0).ContentTransition(morphText)
+				}
+				// A column of its own, so the flags line up; it gives way
+				// to the route's name when the window is narrow.
 				if hasNode {
-					name = n.Display
-					if r.Auto {
-						name += i18n.T(" · 自动", " · Auto")
-					}
+					return flagged(c, p, n, 15, func() { text() }).Basis(220).Shrink(1).MinWidth(110)
 				}
-				exit := func(c *ui.Context) ui.Element {
-					text := func() ui.Element {
-						return ui.Text(c, name).FontSize(15).FontWeight(600).TextColor(p.ink).SingleLine().Shrink(1).MinWidth(0).ContentTransition(morphText)
-					}
-					// A column of its own, so the flags line up; it gives way
-					// to the route's name when the window is narrow.
-					if hasNode {
-						return flagged(c, p, n, 15, func() { text() }).Basis(220).Shrink(1).MinWidth(110)
-					}
-					return text().Basis(220).Shrink(1).MinWidth(110)
-				}
-				if rid != "default" {
-					u.share(c, exitMatch{rid}, "exit:"+rid, exit)
-				} else {
-					exit(c)
-				}
-				d := "—"
-				if hasNode {
-					d = fmtDelay(n)
-				}
-				ui.Text(c, d).FontSize(12).FontFeatures("tnum").Width(56).Shrink(0).TextAlign(ui.End).TextColor(p.mute)
-				ui.Text(c, fmt.Sprintf("%d%%", int(r.Share*100+.5))).FontSize(12).FontFeatures("tnum").Width(36).Shrink(0).TextAlign(ui.End).TextColor(p.mute)
-				arrow := ""
-				if !r.Direct {
-					arrow = "›"
-				}
-				ui.Text(c, arrow).FontSize(14).TextColor(p.faint).Width(10).Shrink(0).TextAlign(ui.End)
-			})
+				return text().Basis(220).Shrink(1).MinWidth(110)
+			}
+			if rid != "default" {
+				u.share(c, exitMatch{rid}, "exit:"+rid, exit)
+			} else {
+				exit(c)
+			}
+			d := "—"
+			if hasNode {
+				d = fmtDelay(n)
+			}
+			ui.Text(c, d).FontSize(12).FontFeatures("tnum").Width(56).Shrink(0).TextAlign(ui.End).TextColor(p.mute)
+			ui.Text(c, fmt.Sprintf("%d%%", int(r.Share*100+.5))).FontSize(12).FontFeatures("tnum").Width(36).Shrink(0).TextAlign(ui.End).TextColor(p.mute)
+			arrow := ""
+			if canOpen {
+				arrow = "›"
+			}
+			ui.Text(c, arrow).FontSize(14).TextColor(p.faint).Width(10).Shrink(0).TextAlign(ui.End)
+		})
+	}
+	ui.Scroll(c).Grow(1).Padding(4, 16, 18, 16).Children(func() {
+		var rest []RouteView
+		var other RouteView
+		for _, r := range u.snap.Routes {
+			if r.ID == routes.Default {
+				other = r
+			} else {
+				rest = append(rest, r)
+			}
 		}
+		ui.Column(c.Key("match")).Children(func() {
+			if u.snap.Mode == "rule" && u.snap.Imported == nil {
+				u.matchLine(c, p, rest, other)
+			}
+			for _, r := range rest {
+				row(r)
+			}
+			u.matchLabel(c, p, other)
+			row(other)
+		})
 	})
 }
 
@@ -2348,7 +2493,9 @@ func (u *UI) trafficBars(c *ui.Context, p *pal, n int) ui.Element {
 	}
 	order := []string{"direct", "dev", "ai", "default", "media"}
 	return ui.Box(c).FillWidth().Draw(func(pt *ui.Painter, r ui.Rect) {
-		if !u.snap.Takeover.On {
+		// Not taken over and nothing recorded: a flat line. What was recorded
+		// is drawn either way, as an app pointed at the port makes it.
+		if !u.snap.Takeover.On && !u.home.moved() {
 			pt.Fill(ui.Rect{X: r.X, Y: r.Y + r.H - 1, W: r.W, H: 1}, p.hair, 0)
 			return
 		}
@@ -2504,7 +2651,7 @@ func (u *UI) eventsNormal(c *ui.Context, p *pal) {
 	pad(c, 14).Children(func() {
 		cellKicker(c, p, "events", i18n.T("刚刚", "Just now"))
 		ui.Column(c).Gap(5).Margin(8, 0, 0, 0).ClipY().Children(func() {
-			if !u.snap.Takeover.On || len(u.tick.Events) == 0 {
+			if len(u.tick.Events) == 0 {
 				ui.Text(c, i18n.T("没有经过 bowel 的流量", "No traffic through bowel")).FontSize(11.5).TextColor(p.mute)
 			}
 			for i, ev := range u.tick.Events {

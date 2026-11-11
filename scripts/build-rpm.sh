@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Repackages a Debian package from `mygo build` as an rpm, so that both install
-# the same files. MyGo writes no rpm itself. Needs dpkg-deb and nfpm.
+# the same files and run the same script when removed (scripts/linux-postrm.sh).
+# Needs dpkg-deb and nfpm.
 #
 #   scripts/build-rpm.sh build/linux-amd64/bowel_0.2.0_amd64.deb build/linux-amd64
 set -euo pipefail
 DEB="$1"
 OUT="$2"
+HERE="$(cd "$(dirname "$0")" && pwd)"
 
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 dpkg-deb -x "$DEB" "$WORK/root"
@@ -37,6 +39,8 @@ contents:
     dst: /usr/share/icons/hicolor/256x256/apps/bowel.png
   - src: $WORK/root/usr/share/icons/hicolor/512x512/apps/bowel.png
     dst: /usr/share/icons/hicolor/512x512/apps/bowel.png
+scripts:
+  postremove: $HERE/linux-postrm.sh
 EOF
 
 mkdir -p "$OUT"

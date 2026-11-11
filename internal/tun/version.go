@@ -2,9 +2,10 @@ package tun
 
 import (
 	"context"
-	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/oboo/moho/internal/nowindow"
 )
 
 // Stale reports whether the root copy at installed is another version of
@@ -22,11 +23,7 @@ func Stale(bundled, installed string) bool {
 func version(bin string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	out, err := func() ([]byte, error) {
-		c := exec.CommandContext(ctx, bin, "-v")
-		hideWindow(c)
-		return c.Output()
-	}()
+	out, err := nowindow.CommandContext(ctx, bin, "-v").Output()
 	if err != nil {
 		return ""
 	}

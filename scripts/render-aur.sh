@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Writes the PKGBUILD and .SRCINFO of the bowel-bin AUR package, which unpacks
 # the release's Debian packages. MyGo's own PKGBUILD covers one architecture
-# and builds from local files, which the AUR cannot use.
+# and builds from local files, which the AUR cannot use. Also writes
+# bowel-bin.install, which runs scripts/linux-postrm.sh when the package is
+# removed.
 #
 #   scripts/render-aur.sh 0.2.0 <sha256 of amd64 .deb> <sha256 of arm64 .deb> out
 set -euo pipefail
@@ -13,7 +15,15 @@ OUT="$4"
 DESC="A desktop client for mihomo"
 URL="https://github.com/21stware/bowel"
 LICENSE="PolyForm-Noncommercial-1.0.0"
+HERE="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$OUT"
+
+# pacman calls post_remove only when the package goes, not on an upgrade.
+{
+	echo 'post_remove() {'
+	echo "	/bin/sh -c '$(grep -v '^#' "$HERE/linux-postrm.sh" | sed "s/'/'\\\\''/g")' sh remove"
+	echo '}'
+} >"$OUT/bowel-bin.install"
 
 cat >"$OUT/PKGBUILD" <<EOF
 # Maintainer: 21stware <https://github.com/21stware/bowel>
@@ -29,6 +39,7 @@ depends=('gtk3' 'webkit2gtk-4.1')
 provides=('bowel')
 conflicts=('bowel')
 options=('!strip' '!debug')
+install=bowel-bin.install
 source_x86_64=("bowel_\${pkgver}_amd64.deb::$URL/releases/download/v\${pkgver}/bowel_\${pkgver}_amd64.deb")
 source_aarch64=("bowel_\${pkgver}_arm64.deb::$URL/releases/download/v\${pkgver}/bowel_\${pkgver}_arm64.deb")
 sha256sums_x86_64=('$SHA_AMD64')
@@ -54,6 +65,7 @@ pkgbase = bowel-bin
 	conflicts = bowel
 	options = !strip
 	options = !debug
+	install = bowel-bin.install
 	source_x86_64 = bowel_${VERSION}_amd64.deb::$URL/releases/download/v$VERSION/bowel_${VERSION}_amd64.deb
 	sha256sums_x86_64 = $SHA_AMD64
 	source_aarch64 = bowel_${VERSION}_arm64.deb::$URL/releases/download/v$VERSION/bowel_${VERSION}_arm64.deb

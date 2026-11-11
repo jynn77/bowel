@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/mihomo"
+	"github.com/oboo/moho/internal/nowindow"
 )
 
 type State string
@@ -35,8 +37,10 @@ const (
 
 // Status is what the UI shows about the core.
 type Status struct {
-	State     State     `json:"state"`
-	Version   string    `json:"version,omitempty"`
+	State   State  `json:"state"`
+	Version string `json:"version,omitempty"`
+	// Error is why the core failed or, while it runs, the proxy port it
+	// could not open.
 	Error     string    `json:"error,omitempty"`
 	PID       int       `json:"pid,omitempty"`
 	StartedAt time.Time `json:"startedAt,omitzero"`
@@ -44,6 +48,14 @@ type Status struct {
 
 // ErrClosed is what starting a core says after Close.
 var ErrClosed = errors.New("the core manager is closed")
+
+// StartError is a core that did not come up, as against a config it
+// refused or a reload that failed: the one failure another executable may
+// not have. It reads as the error it holds.
+type StartError struct{ Err error }
+
+func (e *StartError) Error() string { return e.Err.Error() }
+func (e *StartError) Unwrap() error { return e.Err }
 
 const (
 	stopGrace = 3 * time.Second // for the core to exit when asked
@@ -59,17 +71,28 @@ type Manager struct {
 	SafePaths []string
 
 	// OnStatus and OnTraffic are called from the manager's goroutines.
-	OnStatus  func(Status)
-	OnTraffic func(mihomo.Traffic)
+	OnStatus func(Status)
+	// OnListenError is called when Status's Error changes while the core
+	// runs, which unlike OnStatus says the core itself did not change.
+	OnListenError func()
+	OnTraffic     func(mihomo.Traffic)
 
-	mu       sync.Mutex
-	cmd      *exec.Cmd
-	exited   chan struct{}
-	client   *mihomo.Client
-	status   Status
-	stopping bool
-	closed   bool // by Close
-	cancel   context.CancelFunc
+	// Spawn, if set, is asked first to start the core at bin some other
+	// way than as a child of the app, and returns nil when bin is not its
+	// to start. Windows runs the copy TUN needs through a scheduled task,
+	// elevated, which a child of the app could not be. Such a core prints
+	// to no one: its log is read from the controller instead.
+	Spawn func(bin string) (Process, error)
+
+	mu        sync.Mutex
+	cmd       Process
+	exited    chan struct{}
+	client    *mihomo.Client
+	status    Status
+	listenErr string // the proxy port the running core could not open
+	stopping  bool
+	closed    bool // by Close
+	cancel    context.CancelFunc
 
 	// The controller's address: a unix socket, or TCP with a secret on
 	// Windows, chosen once per run of the app.
@@ -77,6 +100,23 @@ type Manager struct {
 
 	logs logRing
 }
+
+// Process is a running core.
+type Process interface {
+	Pid() int
+	// Wait returns once the core has exited.
+	Wait() error
+	// Stop asks the core to end, and may be called again to insist.
+	Stop()
+}
+
+// child is the core as a child of the app.
+type child struct{ cmd *exec.Cmd }
+
+func (c child) Pid() int    { return c.cmd.Process.Pid }
+func (c child) Wait() error { return c.cmd.Wait() }
+func (c child) Stop()       { interrupt(c.cmd) }
+func (c child) kill()       { _ = c.cmd.Process.Kill() }
 
 // New prepares a manager; it starts nothing.
 func New(bin, dir string) (*Manager, error) {
@@ -146,7 +186,11 @@ func (m *Manager) SetBin(bin string) {
 func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.status
+	s := m.status
+	if s.State == Running {
+		s.Error = m.listenErr
+	}
+	return s
 }
 
 // Client returns the controller client, or an error while the core is not
@@ -174,9 +218,9 @@ func (m *Manager) setStatus(s Status) {
 func (m *Manager) Test(path string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, m.Bin, "-t", "-d", m.Dir, "-f", path)
+	cmd := nowindow.CommandContext(ctx, m.Bin, "-t", "-d", m.Dir, "-f", path)
 	cmd.Env = m.env()
-	setProcAttr(cmd) // on Windows, keeps the check from opening a console window
+	setProcAttr(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf(i18n.T("配置检查失败: %s", "The config check failed: %s"), lastLines(string(out), 3))
@@ -210,6 +254,7 @@ func (m *Manager) Apply(cfg []byte) error {
 	if c, err := m.Client(); err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
+		m.setListenErr("") // a reload tries a port again, and says so if it fails
 		return c.Reload(ctx, m.ConfigPath())
 	}
 	return m.start()
@@ -222,6 +267,14 @@ func (m *Manager) Restart() error {
 }
 
 func (m *Manager) start() error {
+	err := m.run()
+	if err != nil && !errors.Is(err, ErrClosed) {
+		return &StartError{err}
+	}
+	return err
+}
+
+func (m *Manager) run() error {
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
@@ -240,23 +293,40 @@ func (m *Manager) start() error {
 		return err
 	}
 	killStale(filepath.Join(m.Dir, "mihomo.pid"))
+	m.setListenErr("")
 	if m.socket != "" {
 		_ = os.Remove(m.socket)
 	}
 	m.setStatus(Status{State: Starting})
 
-	cmd := exec.Command(m.Bin, "-d", m.Dir, "-f", m.ConfigPath())
-	cmd.Dir = m.Dir
-	cmd.Env = m.env()
-	setProcAttr(cmd)
+	var cmd Process
+	var spawned bool
 	pr, pw := io.Pipe()
-	cmd.Stdout, cmd.Stderr = pw, pw
-	if err := cmd.Start(); err != nil {
-		pw.Close()
-		m.setStatus(Status{State: Failed, Error: err.Error()})
-		return err
+	if m.Spawn != nil {
+		p, err := m.Spawn(m.Bin)
+		if err != nil {
+			pw.Close()
+			m.setStatus(Status{State: Failed, Error: err.Error()})
+			return err
+		}
+		if p != nil {
+			cmd, spawned = p, true
+		}
 	}
-	_ = os.WriteFile(filepath.Join(m.Dir, "mihomo.pid"), []byte(strconv.Itoa(cmd.Process.Pid)), 0o600)
+	if cmd == nil {
+		c := nowindow.Command(m.Bin, "-d", m.Dir, "-f", m.ConfigPath())
+		c.Dir = m.Dir
+		c.Env = m.env()
+		setProcAttr(c)
+		c.Stdout, c.Stderr = pw, pw
+		if err := c.Start(); err != nil {
+			pw.Close()
+			m.setStatus(Status{State: Failed, Error: err.Error()})
+			return err
+		}
+		cmd = child{c}
+	}
+	_ = os.WriteFile(filepath.Join(m.Dir, "mihomo.pid"), []byte(strconv.Itoa(cmd.Pid())), 0o600)
 	go m.readLogs(pr)
 
 	exited := make(chan struct{})
@@ -316,7 +386,10 @@ func (m *Manager) start() error {
 			m.mu.Lock()
 			m.client = client
 			m.mu.Unlock()
-			m.setStatus(Status{State: Running, Version: v.Version, PID: cmd.Process.Pid, StartedAt: time.Now()})
+			m.setStatus(Status{State: Running, Version: v.Version, PID: cmd.Pid(), StartedAt: time.Now()})
+			if spawned {
+				go m.streamLogs(ctx, client, pw)
+			}
 			if m.OnTraffic != nil { // a stream no one reads costs a decode a second
 				go m.traffic(ctx, client)
 			}
@@ -373,13 +446,17 @@ func (m *Manager) Stop() {
 		return
 	}
 	cancel()
-	interrupt(cmd)
+	cmd.Stop()
 	select {
 	case <-exited:
 		return
 	case <-time.After(stopGrace):
 	}
-	_ = cmd.Process.Kill()
+	if c, ok := cmd.(child); ok {
+		c.kill()
+	} else {
+		cmd.Stop()
+	}
 	select {
 	case <-exited:
 	case <-time.After(killGrace):
@@ -402,11 +479,50 @@ func (m *Manager) Logs() []string { return m.logs.all() }
 // called.
 func (m *Manager) Subscribe(fn func(string)) (off func()) { return m.logs.subscribe(fn) }
 
+// streamLogs writes what the controller says of a core that prints to no
+// one where readLogs reads it, until ctx ends (the core exited or is being
+// stopped). What the core said before its controller answered is lost.
+func (m *Manager) streamLogs(ctx context.Context, c *mihomo.Client, w io.Writer) {
+	for ctx.Err() == nil {
+		_ = c.StreamLogs(ctx, "info", func(l mihomo.Log) {
+			fmt.Fprintf(w, "level=%s msg=%q\n", l.Type, l.Payload)
+		})
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Second):
+		}
+	}
+}
+
 func (m *Manager) readLogs(r io.Reader) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64<<10), 1<<20)
 	for sc.Scan() {
 		m.logs.add(sc.Text())
+		m.noteListenError(sc.Text())
+	}
+}
+
+// proxyListenFailed is what mihomo logs for a proxy port it cannot open. It
+// goes on without the port, its controller answering as usual, so this line
+// is all there is to tell that nothing is listening. The DNS listener and
+// the like are not the proxy, and have their own line.
+var proxyListenFailed = regexp.MustCompile(`(?:Start (?:Mixed\(http\+socks\)|HTTP|SOCKS) server error|Listener bowel-port-\d+ listen err): listen \S+ \S*:(\d+): bind:`)
+
+func (m *Manager) noteListenError(line string) {
+	if g := proxyListenFailed.FindStringSubmatch(line); g != nil {
+		m.setListenErr(fmt.Sprintf(i18n.T("端口 %s 被其他程序占用或被系统保留，代理没有在监听。关掉那个程序后重启 bowel，或换一个端口", "Port %s is taken by another program or reserved by the system, so the proxy isn't listening. Close that program and restart bowel, or choose another port"), g[1]))
+	}
+}
+
+func (m *Manager) setListenErr(msg string) {
+	m.mu.Lock()
+	changed := m.listenErr != msg
+	m.listenErr = msg
+	fn := m.OnListenError
+	m.mu.Unlock()
+	if changed && fn != nil {
+		fn()
 	}
 }
 

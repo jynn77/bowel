@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/oboo/moho/internal/core"
@@ -38,7 +39,35 @@ type importedCache struct {
 // routingInfo is what a provider's file brings, as of updatedAt.
 type routingInfo struct {
 	at      time.Time
+	local   string // the local files there were to match by name
 	routing ProviderRouting
+}
+
+// localFiles gives, for a `type: file` proxy-provider of config's, the files
+// bowel keeps under that name: those of the enabled local file Providers
+// called the same. The user put each there; the path the config names for
+// its provider is never read (issue #75).
+func (a *App) localFiles(config string) func(name string) []string {
+	return func(name string) []string {
+		var paths []string
+		for _, p := range a.providers.List() {
+			if p.Kind == provider.File && p.Enabled && p.ID != config && p.Name == name {
+				paths = append(paths, a.providers.Path(p.ID))
+			}
+		}
+		return paths
+	}
+}
+
+// localSig changes when what localFiles has to offer does.
+func (a *App) localSig() string {
+	var b strings.Builder
+	for _, p := range a.providers.List() {
+		if p.Kind == provider.File && p.Enabled {
+			b.WriteString(p.ID + "\x00" + p.Name + "\x00")
+		}
+	}
+	return b.String()
 }
 
 func (a *App) dropImported() {
@@ -71,7 +100,7 @@ func (a *App) importedLocked(s settings.Settings) *core.Imported {
 	data, err := a.providers.Content(key)
 	var im *core.Imported
 	if err == nil {
-		im, err = core.ParseImported(data)
+		im, err = core.ParseImported(data, a.localFiles(key))
 	}
 	if err == nil && im == nil {
 		err = errors.New(i18n.T("这份配置里没有路由组", "This config has no route groups"))
@@ -101,10 +130,10 @@ func importedRoutes(im *core.Imported) []routes.Route {
 	switch match {
 	case "", "DIRECT":
 		def = direct(routes.Default, "DIRECT", false)
-		def.Label = i18n.T("默认", "Default")
+		def.Label = i18n.T("其他流量", "Other")
 	case "REJECT", "REJECT-DROP":
 		def = direct(routes.Default, match, true)
-		def.Label = i18n.T("默认", "Default")
+		def.Label = i18n.T("其他流量", "Other")
 	default:
 		def = route(routes.Default, match)
 	}
@@ -227,14 +256,19 @@ func (a *App) importedIssue(s settings.Settings, snap Snapshot) *Issue {
 // reads a file only when that has changed.
 func (a *App) providerRouting(p provider.Provider) ProviderRouting {
 	s := a.settings.Get()
+	local := a.localSig()
 	a.routesMu.Lock()
 	info, ok := a.imp.info[p.ID]
 	a.routesMu.Unlock()
-	if !ok || !info.at.Equal(p.UpdatedAt) {
-		info = routingInfo{at: p.UpdatedAt}
+	if !ok || !info.at.Equal(p.UpdatedAt) || info.local != local {
+		info = routingInfo{at: p.UpdatedAt, local: local}
 		if data, err := a.providers.Content(p.ID); err == nil && core.HasGroups(data) {
-			if im, err := core.ParseImported(data); err != nil {
+			if im, err := core.ParseImported(data, a.localFiles(p.ID)); err != nil {
 				info.routing.Problem = err.Error()
+				var missing *core.MissingFile
+				if errors.As(err, &missing) {
+					info.routing.NeedsFile = missing.Name
+				}
 			} else if im != nil {
 				info.routing.Groups, info.routing.Rules = len(im.Groups), len(im.Rules)
 			}
@@ -259,7 +293,7 @@ func (a *App) vetUpdate(id string, data []byte) error {
 	if s.ImportedRouting != id {
 		return nil
 	}
-	im, err := core.ParseImported(data)
+	im, err := core.ParseImported(data, a.localFiles(id))
 	if err == nil && im == nil {
 		err = errors.New(i18n.T("这次下载的内容里没有路由组", "What was downloaded has no route groups"))
 	}
@@ -297,7 +331,7 @@ func (a *App) setImportedRouting(id string) error {
 		if err != nil {
 			return err
 		}
-		im, err := core.ParseImported(data)
+		im, err := core.ParseImported(data, a.localFiles(id))
 		if err != nil {
 			return err
 		}

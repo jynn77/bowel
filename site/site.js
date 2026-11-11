@@ -1,34 +1,25 @@
-// bowel's website: language, screenshots that follow it and the color
+// bowel's website: screenshots that follow the page's language and the color
 // scheme, the skin gallery, downloads, copy buttons, and a little entrance motion.
 (function () {
   var root = document.documentElement;
   var dark = window.matchMedia("(prefers-color-scheme: dark)");
-  var lang = function () { return root.classList.contains("en") ? "en" : "zh"; };
+  // Each language is its own page (scripts/build-site.py), marked on <html>.
+  var lang = root.classList.contains("en") ? "en" : "zh";
+  // The screenshots sit beside this script, whichever directory the page is in.
+  var here = document.currentScript.src;
+  var shot = function (name) { return new URL("shots/" + name + ".webp", here).href; };
 
   // Every <img data-shot="name"> shows shots/name-<lang>[-dark].webp.
   // data-dark="1" keeps it dark whatever the page's scheme.
   function shots() {
     document.querySelectorAll("img[data-shot]").forEach(function (img) {
       var d = img.dataset.dark === "1" || dark.matches;
-      var src = "shots/" + img.dataset.shot + "-" + lang() + (d ? "-dark" : "") + ".webp";
-      if (img.getAttribute("src") !== src) img.setAttribute("src", src);
+      var src = shot(img.dataset.shot + "-" + lang + (d ? "-dark" : ""));
+      if (img.src !== src) img.src = src;
     });
     skin(current, true);
   }
 
-  function title() {
-    document.title = lang() === "en" ? "bowel · A cross-platform mihomo client" : "bowel · 跨平台的 mihomo 客户端";
-  }
-  function setLang(l) {
-    root.className = l;
-    root.lang = l === "en" ? "en" : "zh-CN";
-    title();
-    try { localStorage.setItem("bowel-lang", l); } catch (e) {}
-    shots();
-  }
-  document.querySelector(".lang").addEventListener("click", function () {
-    setLang(lang() === "en" ? "zh" : "en");
-  });
   dark.addEventListener("change", shots);
 
   // Skins.
@@ -39,21 +30,21 @@
     current = id;
     tabs.forEach(function (b) { b.setAttribute("aria-selected", String(b.dataset.skin === id)); });
     document.querySelectorAll("[data-note]").forEach(function (n) { n.hidden = n.dataset.note !== id; });
-    var src = "shots/skin-" + id + "-" + lang() + ".webp";
-    if (skinImg.getAttribute("src") === src) return;
-    if (quiet) { skinImg.setAttribute("src", src); return; }
+    var src = shot("skin-" + id + "-" + lang);
+    if (skinImg.src === src) return;
+    if (quiet) { skinImg.src = src; return; }
     var next = new Image();
     next.src = src;
     skinImg.classList.add("fading");
     next.decode().catch(function () {}).then(function () {
-      skinImg.setAttribute("src", src);
+      skinImg.src = src;
       skinImg.classList.remove("fading");
     });
   }
   tabs.forEach(function (b) {
     b.addEventListener("click", function () { skin(b.dataset.skin); });
     // Warm the cache so switching is instant.
-    b.addEventListener("pointerenter", function () { new Image().src = "shots/skin-" + b.dataset.skin + "-" + lang() + ".webp"; }, { once: true });
+    b.addEventListener("pointerenter", function () { new Image().src = shot("skin-" + b.dataset.skin + "-" + lang); }, { once: true });
   });
 
   // Copy buttons.
@@ -133,6 +124,5 @@
     });
   }
 
-  title();
   shots();
 })();

@@ -52,7 +52,7 @@ class AppState extends ChangeNotifier {
   String nodeQuery = '';
 
   var routes = [
-    RouteCfg('default', '默认', '香港 03 IPLC', auto: true),
+    RouteCfg('default', '其他流量', '香港 03 IPLC', auto: true),
     RouteCfg('ai', 'AI 服务', '洛杉矶 VPS'),
     RouteCfg('media', '流媒体', '新加坡 01', auto: true),
     RouteCfg('dev', '开发', '东京 01', auto: true),
@@ -705,7 +705,7 @@ class AppState extends ChangeNotifier {
     final count = v['ruleCount'] as int? ?? 0;
     modes = [
       ('rule', tr('规则', 'Rules'), tr('按规则把流量分到不同路由。日常就用这个。', 'Splits traffic across routes by rules. The everyday choice.'), tr('{0} 条规则 · {1} 条路由', '{0} rules · {1} routes', [count, routes.length])),
-      ('global', tr('全局', 'Global'), tr('所有流量都走默认路由的出口，规则暂停。', 'All traffic uses the Default route exit. Rules pause.'), tr('所有流量走默认出口', 'All traffic uses the default exit')),
+      ('global', tr('全局', 'Global'), tr('所有流量都走节点，规则暂停。', 'All traffic goes through a node. Rules pause.'), tr('所有流量走节点', 'All traffic through a node')),
       ('direct', tr('直连', 'Direct'), tr('所有流量直接连接，不经过任何节点。', 'All traffic connects directly, through no node.'), tr('不经过任何节点', 'Through no node')),
     ];
 

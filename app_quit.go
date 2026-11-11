@@ -109,6 +109,7 @@ func (a *App) shutdown() {
 		a.quitting = true
 		a.mu.Unlock()
 		stopMCP()
+		stopCLI()
 		ctx, cancel := context.WithTimeout(context.Background(), quitLimit)
 		defer cancel()
 		// Side by side, so that the slow ones do not add up. Any order is

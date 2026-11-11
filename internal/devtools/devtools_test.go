@@ -16,7 +16,9 @@ import (
 
 func opts(t *testing.T) Options {
 	dir := t.TempDir()
-	return Options{Home: filepath.Join(dir, "home"), DataDir: filepath.Join(dir, "data"), Port: 7899}
+	// A Mac's shell and netcat, whichever machine the tests run on;
+	// platform_test.go has the others.
+	return Options{Home: filepath.Join(dir, "home"), DataDir: filepath.Join(dir, "data"), Port: 7899, Shell: "zsh", Netcat: openbsdKind}
 }
 
 func put(t *testing.T, path, text string) {
@@ -206,6 +208,9 @@ func TestActions(t *testing.T) {
 func TestSSHBlockFollowsThePort(t *testing.T) {
 	if _, err := exec.LookPath("ssh"); err != nil {
 		t.Skip("no ssh")
+	}
+	if _, err := exec.LookPath("nc"); err != nil {
+		t.Skip("no nc for ssh to ask about the port")
 	}
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

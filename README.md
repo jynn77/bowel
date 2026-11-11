@@ -10,7 +10,7 @@ bowel is a <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> client for m
 
 <p align="center">
   <a href="https://github.com/21stware/bowel/releases/latest"><b>Download</b></a> ·
-  <a href="https://21stware.github.io/bowel/">Website</a> ·
+  <a href="https://bowel.dev/en/">Website</a> ·
   <a href="README.zh-CN.md">简体中文</a>
 </p>
 
@@ -57,12 +57,12 @@ Import subscription links, node URLs, YAML configs, or QR codes, with data usage
 <img src="site/shots/providers-en.webp" width="880" alt="Providers">
 
 ### Menu bar
-Toggle system proxy takeover, switch proxy modes, and select default nodes from the menu bar, or from the system tray on Windows and Linux.
+Toggle system proxy takeover, switch proxy modes, and pick the node for traffic no rule matches from the menu bar, or from the system tray on Windows and Linux.
 
 <img src="site/shots/panel-en.webp" width="300" alt="Menu bar panel">
 
 ### Skins
-Six skins that change the look of the whole interface.
+Thirteen skins that change the look of the whole interface.
 
 <table>
   <tr>
@@ -75,13 +75,29 @@ Six skins that change the look of the whole interface.
     <td><img src="site/shots/skin-sakura-en.webp" alt="Sakura"><br><sub>Sakura</sub></td>
     <td><img src="site/shots/skin-paper-en.webp" alt="Paper"><br><sub>Paper (default)</sub></td>
   </tr>
+  <tr>
+    <td><img src="site/shots/skin-shanshui-en.webp" alt="Shanshui"><br><sub>Shanshui</sub></td>
+    <td><img src="site/shots/skin-celadon-en.webp" alt="Celadon"><br><sub>Celadon</sub></td>
+    <td><img src="site/shots/skin-dunhuang-en.webp" alt="Dunhuang"><br><sub>Dunhuang</sub></td>
+  </tr>
+  <tr>
+    <td><img src="site/shots/skin-dusk-en.webp" alt="Dusk"><br><sub>Dusk</sub></td>
+    <td><img src="site/shots/skin-aurora-en.webp" alt="Aurora"><br><sub>Aurora</sub></td>
+    <td><img src="site/shots/skin-obsidian-en.webp" alt="Obsidian"><br><sub>Obsidian</sub></td>
+  </tr>
+  <tr>
+    <td><img src="site/shots/skin-riso-en.webp" alt="Riso"><br><sub>Riso</sub></td>
+  </tr>
 </table>
 
 ### Other
 - **Custom rules**: Route specific domains, keywords, or IP ranges, and test where addresses go.
 - **Measured exit locations**: Verify true exit locations through Cloudflare trace.
-- **Gateway mode** (macOS): Turn this Mac into a LAN gateway for devices like TVs and consoles.
-- **TUN** (macOS): Intercept traffic from applications that ignore system proxy settings.
+- **Gateway mode** (macOS, Linux): Turn this computer into a LAN gateway for devices like TVs and consoles.
+- **TUN** (macOS, Windows, Linux): Intercept traffic from applications that ignore system proxy settings.
+- **Developer tools** (macOS, Linux): Docker, the terminal and Git ignore the system proxy. bowel lists which ones aren't connected, writes their own config in one click, and removes it cleanly when you undo.
+- **Download sources**: Measures the official source and each mirror for npm, pip, Go and Cargo, and switches in one click. When the current source stops answering, one click moves you to the fastest one that does, or sends it through a node again.
+- **Private networks**: Addresses on your LAN, Tailscale and company VPN go direct automatically, in global mode too.
 - **MCP**: Built-in MCP server for Claude Code and other agents to read status and troubleshoot connections. It asks you before changing settings by default. The command below is for macOS; on Windows and Linux, use the path of the bowel program.
   ```bash
   claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp
@@ -119,7 +135,7 @@ Or download the file for your platform from [Releases](https://github.com/21stwa
 
 - **macOS**: Drag bowel into Applications. The app is signed with a Developer ID and notarized by Apple.
 - **Windows**: Run the installer. It isn't code-signed, so Windows may warn you before it runs.
-- **Linux**: Install the `.deb` or `.rpm`, or unpack the archive and run `install.sh`, which installs bowel for your user in `~/.local`.
+- **Linux**: Install the `.deb` or `.rpm`. For a user install in `~/.local`, download `install.sh` and the `.tar.gz` from the same release, then run `sh install.sh bowel-<version>-linux-<arch>.tar.gz` without unpacking the archive. This is separate from the package-repository script above.
 - **Android**: Install the APK, allowing your browser to install apps if asked. Android asks for VPN permission the first time you connect.
 - **iOS**: Not released yet.
 
@@ -129,12 +145,53 @@ Some features depend on the platform:
 
 | | macOS | Windows | Linux | Android |
 | --- | --- | --- | --- | --- |
-| Takeover | System proxy or TUN | System proxy | Manual | System VPN |
-| Gateway mode | Yes | No | No | No |
+| Takeover | System proxy or TUN | System proxy or TUN | System proxy (GNOME, KDE) or TUN | System VPN |
+| Gateway mode | Yes | No | Yes | No |
+| Developer tools | Yes | No | Yes (zsh, bash) | No |
+| Scan QR codes on the screen | Yes | Yes | Yes | No |
 | Scan QR codes with the camera | Yes | No | No | Yes |
 | MCP server | Yes | Yes | Yes | No |
+| Command line and `bowel daemon` | Yes | Yes | Yes | No |
 
-bowel can't set the system proxy on Linux yet, so point your applications at its mixed port, 7899 by default. On Android, you can choose apps that stay outside the VPN.
+TUN asks for an administrator once, the first time you turn it on: macOS in its own dialog, Windows in a User Account Control prompt, Linux through polkit (`pkexec`). On Linux with systemd-resolved, that authorization also leaves a polkit rule letting your user point the resolver at the TUN device, which the core does every time TUN starts; without it (polkit older than 0.106, which reads no such rules) the desktop asks for a password three times at each start. On Linux the system proxy is GNOME's, which Cinnamon, MATE, Budgie and others share, or KDE's; on another desktop use TUN, or point your applications at the mixed port, 7899 by default. What each system has and lacks is listed in [docs/platform-parity.md](docs/platform-parity.md). On Android, you can choose apps that stay outside the VPN.
+
+## Command line
+
+The same program is a command line for the running bowel. On macOS it is `/Applications/bowel.app/Contents/MacOS/bowel`; link it into your `PATH` (`ln -s /Applications/bowel.app/Contents/MacOS/bowel /usr/local/bin/bowel`) or use the full path. Run without a command, it opens the app as before.
+
+```bash
+bowel status                      # the light, mode, takeover, each route's node, traffic
+bowel on                          # take over (system proxy); bowel off puts it back
+bowel mode global                 # rule | global | direct
+bowel routes                      # routes and the node each uses
+bowel route use ai auto           # choose a route's node, or auto
+bowel nodes --test                # nodes with fresh delays
+bowel providers add <url|file>    # also: list, update, remove, enable, disable
+bowel rules add openai.com ai     # also: list, remove, test <address>
+bowel conns --watch               # connections as they open and end
+bowel logs -f --level warning     # follow the core's log
+bowel settings set logLevel debug # also: list, get
+bowel tun on                      # and: bowel gateway on
+bowel tui                         # all of it on a full screen
+```
+
+`bowel tui` is the same on a whole terminal: pages for the overview, connections, logs, rules, Providers and settings, kept current. The overview has the switches (takeover, system proxy, TUN, gateway mode, allow LAN) and the routes: Enter or Space turns a switch, Enter on a route chooses its node (`t` tests the delays), `m` switches the mode and `a` adds a subscription. The settings page changes any setting by key. `/` filters connections and `?` lists the keys. A change asks y/n first. It works over SSH: `ssh server -t bowel tui`.
+
+**A port per route group.** Two programs on this computer can reach the same site by different exits when each is given a proxy port of its own: `bowel settings set extraPorts '[{"port":7901,"route":"ai"},{"port":7902,"route":"media"}]'` opens mixed ports on `127.0.0.1` whose traffic all goes to that route group (the IDs `bowel routes` lists), whatever the rules and the mode say. They are never open to the LAN, are not part of an exported configuration, and have no place in the window; `'[]'` closes them.
+
+Every command has `--help` with examples. Reading commands take `--json`, and `logs -f` and `conns --watch` print one JSON object per line with it. Colors and progress go away when the output is not a terminal or `NO_COLOR` is set. Exit codes are 0 for done, 1 when it failed (for example bowel isn't running) and 2 for a wrong command line. `bowel completion bash|zsh|fish|powershell` prints a completion script.
+
+**Without a window.** `bowel daemon` runs bowel with no window, menu bar icon or Dock icon: the core, the monitors and the command line's socket only. It stays in the foreground and stops on SIGINT, SIGTERM or `bowel stop`, putting the system proxy back as the app does, so systemd, launchd or a service wrapper can keep it. `BOWEL_DATA_DIR` (or `--data-dir`) gives it a data folder of its own. The daemon does not update itself. Opening the app while the daemon runs does nothing: stop the daemon first.
+
+```ini
+# /etc/systemd/system/bowel.service
+[Service]
+ExecStart=/opt/bowel/bowel daemon
+Environment=BOWEL_DATA_DIR=/var/lib/bowel
+Restart=on-failure
+```
+
+**Agents.** Commands you type are not asked about. A command run by an agent (Claude Code, Codex, Cursor and others are recognised by their environment) follows the same policy as MCP: ask, allow or deny. The daemon has no window to ask in, so under "ask" it refuses an agent's change; allow them with `bowel settings set mcpPolicy allow`, which only you can run.
 
 ## Develop
 

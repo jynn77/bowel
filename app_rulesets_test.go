@@ -169,3 +169,50 @@ func TestRuleSetLeftBehindIsClearedAtStart(t *testing.T) {
 		t.Error("orphan kept")
 	}
 }
+
+// TestRuleSetOrderInTheCore: of two sets holding the same address, the one
+// listed first decides in the real core. A broad set imported first and a
+// narrow one imported into a newer group are put the other way round by
+// moving the group, and two sets of one group by moving the set.
+func TestRuleSetOrderInTheCore(t *testing.T) {
+	a, _ := routingApp(t, withHitHost)
+	list := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "DOMAIN-SUFFIX,"+hitHost+"\n")
+	}))
+	defer list.Close()
+	add := func(name, group string) string {
+		t.Helper()
+		c, err := a.checkRuleSet(context.Background(), list.URL+"/"+name+".yaml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := a.importRuleSet(c, group)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	decides := func(what, id, route string) {
+		t.Helper()
+		if rule, payload := hitOf(t, a); rule != "RuleSet" || payload != routes.RuleSetProvider(id) {
+			t.Errorf("%s: %s %s decides, want the set %s", what, rule, payload, id)
+		}
+		if got, _ := routeAndMine(a, hitHost); got != route {
+			t.Errorf("%s: explain says %q, want %q", what, got, route)
+		}
+	}
+	broad := add("broad", "ai")
+	var g string
+	changeRouting(t, a, func(p *routes.Plan) { g = p.AddGroup(nil, "OpenAI") })
+	narrow := add("narrow", g)
+	decides("as imported", broad, "ai")
+	changeRouting(t, a, func(p *routes.Plan) { p.MoveGroup(g, "ai") })
+	decides("the newer group moved above", narrow, g)
+	changeRouting(t, a, func(p *routes.Plan) { p.MoveGroup(g, "dev") })
+	decides("the newer group moved back below", broad, "ai")
+
+	second := add("second", "ai")
+	decides("a second set in the group", broad, "ai")
+	changeRouting(t, a, func(p *routes.Plan) { p.MoveRuleSet(second, broad) })
+	decides("the second set moved above the first", second, "ai")
+}

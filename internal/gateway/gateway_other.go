@@ -1,4 +1,4 @@
-//go:build !darwin
+//go:build !darwin && !linux && !windows
 
 package gateway
 
@@ -11,11 +11,17 @@ import (
 
 var errUnsupported = errors.New("not supported")
 
-// OS is this system's: outside macOS the gateway only reads the network.
+// OS is this system's: one bowel has no gateway for only reads the
+// network.
 func OS() System { return other{} }
 
-// PrimaryInterface is unknown outside macOS.
+// Supported says whether this system can be made a gateway.
+func Supported() bool { return false }
+
+// PrimaryInterface is unknown here.
 func PrimaryInterface() string { return "" }
+
+func onLAN(name string) bool { return physical(name) }
 
 type other struct{}
 

@@ -93,7 +93,63 @@ func (s *Store) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.index(), b, 0o600)
+	// Whole or not at all: a restart may come in the middle of a save.
+	tmp := s.index() + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.index())
+}
+
+// Snapshot is what is known of the sets of ids and each one's file, as
+// they are now: what an export holds, and what Replace takes back. A set
+// whose file is gone is left out.
+func (s *Store) Snapshot(ids map[string]bool) (map[string]Meta, map[string][]byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	meta, files := map[string]Meta{}, map[string][]byte{}
+	for id, m := range s.meta {
+		if !ids[id] {
+			continue
+		}
+		if b, err := os.ReadFile(s.Path(id)); err == nil {
+			meta[id], files[id] = m, b
+		}
+	}
+	return meta, files
+}
+
+// Replace makes the store hold the sets of meta and nothing else, each with
+// its file from files; a set without a file is left out. Files are replaced
+// whole, as the core watches them.
+func (s *Store) Replace(meta map[string]Meta, files map[string][]byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := map[string]Meta{}
+	for id, m := range meta {
+		b, ok := files[id]
+		if !ok || id == "" || id != filepath.Base(id) {
+			continue
+		}
+		tmp := s.Path(id) + ".tmp"
+		if err := os.WriteFile(tmp, b, 0o600); err != nil {
+			return err
+		}
+		if err := os.Rename(tmp, s.Path(id)); err != nil {
+			return err
+		}
+		next[id] = m
+	}
+	entries, _ := os.ReadDir(s.dir)
+	for _, e := range entries {
+		if id, ok := strings.CutSuffix(e.Name(), ".yaml"); ok {
+			if _, keep := next[id]; !keep {
+				_ = os.Remove(filepath.Join(s.dir, e.Name()))
+			}
+		}
+	}
+	s.meta, s.matchers = next, map[string]*matcher{}
+	return s.saveLocked()
 }
 
 // Get is what is known of set id. A set whose file is gone counts as none.

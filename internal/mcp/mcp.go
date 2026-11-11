@@ -42,6 +42,9 @@ type Server struct {
 	// Instructions tell the agent what the server is for.
 	Instructions string
 	Tools        []Tool
+	// OnInit, when set, sees each session's initialize request (its
+	// params) before it is answered: the place to note who is calling.
+	OnInit func(s *Session, params json.RawMessage)
 }
 
 // Session is one agent's connection.
@@ -239,6 +242,9 @@ func (srv *Server) handle(ctx context.Context, sess *Session, req request) (any,
 			sess.mu.Lock()
 			sess.client = name
 			sess.mu.Unlock()
+		}
+		if srv.OnInit != nil {
+			srv.OnInit(sess, req.Params)
 		}
 		v := Versions[0]
 		if slices.Contains(Versions, p.ProtocolVersion) {

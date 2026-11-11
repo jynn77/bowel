@@ -34,8 +34,10 @@ import (
 	"github.com/oboo/moho/internal/devnet"
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/mcp"
+	"github.com/oboo/moho/internal/nowindow"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
+	"github.com/oboo/moho/internal/sysproxy"
 )
 
 // mcpSocket is where the app serves MCP: in its data folder, or, when that
@@ -103,7 +105,7 @@ func startOwnApp() error {
 	if !strings.HasSuffix(bundle, ".app") {
 		return errors.New("not inside an .app; start bowel first")
 	}
-	return exec.Command("open", "-g", bundle).Run()
+	return nowindow.Command("open", "-g", bundle).Run()
 }
 
 // ---- Approval ----
@@ -190,6 +192,9 @@ var errDenied = errors.New("denied")
 
 // approve lets a change through as the policy says, asking when it is ask.
 func (a *App) approve(ctx context.Context, s *mcp.Session, what words, detail string) error {
+	if isLocal(s) { // the user's own command (app_cli.go): nothing to ask
+		return nil
+	}
 	switch a.settings.Get().Policy() {
 	case "allow":
 		return nil
@@ -224,6 +229,9 @@ func (a *App) change(ctx context.Context, s *mcp.Session, what words, detail str
 		return err
 	}
 	err := do()
+	if isLocal(s) { // the list is of what agents asked for
+		return err
+	}
 	ch := agentChange{At: time.Now(), Client: s.Name(), What: what, Outcome: "applied"}
 	if err != nil {
 		ch.Outcome, ch.Error = "failed", err.Error()
@@ -567,6 +575,7 @@ func (a *App) mcpServer() *mcp.Server {
 						"providers": len(snap.Providers), "activeConnections": t.Active,
 						"traffic":     map[string]int64{"downBps": t.Down, "upBps": t.Up, "todayDown": t.TodayDown, "todayUp": t.TodayUp, "monthDown": t.MonthDown},
 						"agentPolicy": a.settings.Get().Policy(), "version": snap.Version,
+						"ipv6": a.ipv6Report(), "headless": a.headless,
 					}, nil
 				},
 			},
@@ -779,7 +788,7 @@ func (a *App) mcpServer() *mcp.Server {
 			},
 			{
 				Name: "set_takeover", Title: "Set the takeover", Destructive: true,
-				Description: "Turns bowel's takeover of this Mac's traffic on or off, and chooses its entries: the system proxy and TUN (all traffic; the first time macOS asks the user for an administrator's password). Give only what should change.",
+				Description: "Turns bowel's takeover of this Mac's traffic on or off, and chooses its entries: the system proxy and TUN (all traffic; the first time macOS asks the user for an administrator's password). Give only what should change. Asking for TUN on while its status is error tries its core again.",
 				Input: obj(map[string]any{
 					"enabled":     map[string]any{"type": "boolean", "description": "Take over traffic at all (false pauses it, keeping the entries)."},
 					"systemProxy": map[string]any{"type": "boolean", "description": "Use the system proxy."},
@@ -802,8 +811,14 @@ func (a *App) mcpServer() *mcp.Server {
 					if p.SystemProxy != nil {
 						note("systemProxy", st.SystemProxy, *p.SystemProxy)
 					}
+					// TUN wanted and not had (its core did not start): asking
+					// for it again is asking to try again.
+					retry := p.Tun != nil && *p.Tun && st.Tun && a.tunFailed()
 					if p.Tun != nil {
 						note("tun", st.Tun, *p.Tun)
+					}
+					if retry {
+						lines = append(lines, "tun: retry")
 					}
 					if p.Enabled != nil {
 						note("enabled", a.takeoverOn(st), *p.Enabled)
@@ -817,7 +832,7 @@ func (a *App) mcpServer() *mcp.Server {
 								return err
 							}
 						}
-						if p.Tun != nil && *p.Tun != st.Tun {
+						if p.Tun != nil && (*p.Tun != st.Tun || retry) {
 							if err := a.setTun(*p.Tun); err != nil {
 								return err
 							}
@@ -831,6 +846,29 @@ func (a *App) mcpServer() *mcp.Server {
 						return nil, err
 					}
 					return map[string]any{"changed": lines, "takeover": a.snapshot().Takeover}, nil
+				},
+			},
+			{
+				Name: "retake_system_proxy", Title: "Take the system proxy over again", Destructive: true,
+				Description: "Points the system proxy back at bowel when takeover wants it and it points elsewhere (status hijacked or error). set_takeover does nothing here, as the setting has not changed. What the system had before bowel stays saved, to be put back when bowel quits.",
+				Input:       obj(map[string]any{}),
+				Run: func(ctx context.Context, s *mcp.Session, _ json.RawMessage) (any, error) {
+					st := a.settings.Get()
+					if !a.takeoverOn(st) || !st.SystemProxy {
+						return nil, errors.New("bowel is not set to use the system proxy: turn it on with set_takeover")
+					}
+					cur, err := sysproxy.Check(st.MixedPort)
+					if err != nil {
+						return nil, err
+					}
+					if cur.Ours {
+						return "Nothing to change: the system proxy points at bowel.", nil
+					}
+					detail := fmt.Sprintf("system proxy → 127.0.0.1:%d", st.MixedPort)
+					if err := a.change(ctx, s, words{"重新接管系统代理", "Take the system proxy over again"}, detail, a.retake); err != nil {
+						return nil, err
+					}
+					return map[string]any{"takeover": a.snapshot().Takeover}, nil
 				},
 			},
 			{
@@ -974,7 +1012,7 @@ func (a *App) mcpServer() *mcp.Server {
 					if err := mcp.Args(raw, &p); err != nil {
 						return nil, err
 					}
-					patch, err := a.settingsPatch(p.Changes)
+					patch, err := a.settingsPatch(p.Changes, isLocal(s))
 					if err != nil {
 						return nil, err
 					}
@@ -1054,7 +1092,8 @@ func (a *App) ruleFor(kind, target string) (routes.UserRule, error) {
 
 // settingsPatch checks an agent's changes and gives them as JSON to decode
 // onto the settings.
-func (a *App) settingsPatch(changes map[string]json.RawMessage) ([]byte, error) {
+// The policy itself is the user's: local says the user is who asks.
+func (a *App) settingsPatch(changes map[string]json.RawMessage, local bool) ([]byte, error) {
 	if len(changes) == 0 {
 		return nil, errors.New("no changes given")
 	}
@@ -1062,6 +1101,7 @@ func (a *App) settingsPatch(changes map[string]json.RawMessage) ([]byte, error) 
 	ok := editable(st)
 	for k, v := range changes {
 		switch {
+		case k == "mcpPolicy" && local:
 		case slices.Contains(notEditable, k):
 			return nil, fmt.Errorf("%s can't be changed here (%s)", k, map[string]string{
 				"mcpPolicy": "only the user sets it, in Settings > MCP", "rules": "use add_rule and remove_rule",
@@ -1084,10 +1124,16 @@ func (a *App) settingsPatch(changes map[string]json.RawMessage) ([]byte, error) 
 	return b, nil
 }
 
+// ipv6Report is the IPv6 setting and what it comes to on this network.
+func (a *App) ipv6Report() map[string]any {
+	mode, found := a.settings.Get().IPv6, a.devEnv().IPv6
+	return map[string]any{"mode": string(mode), "enabled": mode.Enabled(found.Usable), "found": found}
+}
+
 // settingChoices are the values of the settings that take one of a few.
 func settingChoices() map[string][]string {
 	return map[string][]string{
-		"language": i18n.Languages, "appearance": settings.Appearances, "borders": settings.BorderStyles, "skin": settings.Skins,
+		"ipv6": core.IPv6Modes, "language": i18n.Languages, "appearance": settings.Appearances, "borders": settings.BorderStyles, "skin": settings.Skins,
 		"logLevel": settings.LogLevels, "mode": {"rule", "global", "direct"}, "mcpPolicy": settings.MCPPolicies,
 		"dnsMode": core.DNSModes, "tunStack": core.TunStacks, "findProcess": core.FindProcess, "fingerprint": core.Fingerprints,
 	}
@@ -1207,7 +1253,7 @@ const mcpInstructions = `bowel is the user's macOS client for the mihomo proxy c
 
 Read freely: get_status first, then get_settings, list_routes, list_rules, explain, list_connections, get_logs, get_whitelists, get_dev_network.
 
-Changes (set_mode, set_takeover, select_node, add_rule, remove_rule, whitelist_add/remove, update_settings, update_providers, flush_dns) follow the user's policy: by default bowel asks the user in a dialog, which may take a while; they may also be always allowed or always refused. A refusal is the user's decision: don't retry it, tell the user. Prefer the narrowest change: to send a site somewhere, add_rule; to let a site skip the proxy, whitelist_add to direct.`
+Changes (set_mode, set_takeover, retake_system_proxy, select_node, add_rule, remove_rule, whitelist_add/remove, update_settings, update_providers, flush_dns) follow the user's policy: by default bowel asks the user in a dialog, which may take a while; they may also be always allowed or always refused. A refusal is the user's decision: don't retry it, tell the user. Prefer the narrowest change: to send a site somewhere, add_rule; to let a site skip the proxy, whitelist_add to direct.`
 
 var mcpStop context.CancelFunc
 

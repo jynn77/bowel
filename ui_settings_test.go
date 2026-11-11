@@ -4,6 +4,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -75,6 +76,29 @@ func TestSettingsWindow(t *testing.T) {
 			continue
 		}
 
+		// The speed beside the menu bar icon is there to ask for, and off.
+		if err := tt.Click("通用"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		if u.shownSettings().TraySpeed {
+			t.Fatal("the menu bar shows the speed before anyone asked")
+		}
+		tt.SetSize(760, 2000) // the option is the section's last: no scrolling to it
+		tt.Frame()
+		title, _ := traySpeedLabel(runtime.GOOS)
+		sw, ok := tt.AccessByRole(ui.RoleSwitch, title)
+		if !ok {
+			t.Fatalf("no switch for the menu bar's speed among %q", tt.Texts())
+		}
+		tt.ClickAt(sw.Bounds.X+sw.Bounds.W/2, sw.Bounds.Y+sw.Bounds.H/2)
+		tt.Frame()
+		if !u.shownSettings().TraySpeed {
+			t.Error("the switch did not turn the menu bar's speed on")
+		}
+		tt.SetSize(760, 560)
+		tt.Frame()
+
 		// A choice applies at once.
 		if err := tt.Click("内核"); err != nil {
 			t.Fatal(err)
@@ -88,16 +112,17 @@ func TestSettingsWindow(t *testing.T) {
 			t.Errorf("log level %q after clicking warning", got)
 		}
 
-		// So does a switch.
-		sw, ok := tt.AccessByRole(ui.RoleSwitch, "IPv6")
-		if !ok || !sw.Checked {
-			t.Fatalf("IPv6 switch: %+v %v", sw, ok)
+		// So does the choice IPv6 has of three.
+		if u.shownSettings().IPv6 != core.IPv6Auto {
+			t.Fatalf("IPv6 starts as %q", u.shownSettings().IPv6)
 		}
-		tt.ClickAt(sw.Bounds.X+sw.Bounds.W/2, sw.Bounds.Y+sw.Bounds.H/2)
+		if err := tt.Click("开启"); err != nil {
+			t.Fatal(err)
+		}
 		tt.Frame()
 		tt.Frame()
-		if u.shownSettings().IPv6 {
-			t.Error("IPv6 still on after clicking its switch")
+		if got := u.shownSettings().IPv6; got != core.IPv6On {
+			t.Errorf("IPv6 %q after clicking on", got)
 		}
 
 		// A text option is kept on Enter, not while typing.
@@ -166,8 +191,8 @@ func TestSettingsWindow(t *testing.T) {
 		tt.ClickAt(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+b.Bounds.H/2)
 		tt.Frame()
 		got := u.shownSettings()
-		if got.HTTPPort != 7901 || got.MixedPort != 7900 || !got.IPv6 || got.LogLevel != "info" {
-			t.Errorf("after restoring: http %d mixed %d ipv6 %v log %s", got.HTTPPort, got.MixedPort, got.IPv6, got.LogLevel)
+		if got.HTTPPort != 7901 || got.MixedPort != 7900 || got.IPv6 != core.IPv6Auto || got.LogLevel != "info" {
+			t.Errorf("after restoring: http %d mixed %d ipv6 %s log %s", got.HTTPPort, got.MixedPort, got.IPv6, got.LogLevel)
 		}
 	}
 }
@@ -287,7 +312,7 @@ func TestSettingsFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := st.Get()
-	if s.MixedPort != 7911 || s.IPv6 || s.TunMTU != 9000 || s.URLTestInterval != 300 || !s.SniffParsePureIP || len(s.DNSHijack) != 2 {
+	if s.MixedPort != 7911 || s.IPv6 != core.IPv6Off || s.TunMTU != 9000 || s.URLTestInterval != 300 || !s.SniffParsePureIP || len(s.DNSHijack) != 2 {
 		t.Errorf("opened: %+v", s)
 	}
 	if !slices.Equal(settings.Defaults.Bypass[:1], []string{"localhost"}) {
@@ -326,7 +351,7 @@ func TestSettingsValidate(t *testing.T) {
 
 func TestBuildConfigOptions(t *testing.T) {
 	in := core.Input{Routes: routes.Template(), Mode: "rule", MixedPort: 7899, ProbePort: 7900, TestURL: "x",
-		Options: core.Options{IPv6: false, UnifiedDelay: true, DNS: true, DNSMode: "redir-host", Nameservers: []string{"1.1.1.1"}}}
+		Options: core.Options{IPv6: core.IPv6Off, UnifiedDelay: true, DNS: true, DNSMode: "redir-host", Nameservers: []string{"1.1.1.1"}}}
 	out, err := core.BuildConfig(in)
 	if err != nil {
 		t.Fatal(err)

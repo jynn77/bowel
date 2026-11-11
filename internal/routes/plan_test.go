@@ -162,7 +162,7 @@ func TestCustomGroups(t *testing.T) {
 	if c := p.AddGroup(nil, "x"); c != "g1" {
 		t.Errorf("freed id not reused: %q", c)
 	}
-	if GroupNameError(all, a, "") == "" || GroupNameError(all, a, "默认") == "" || GroupNameError(all, a, "全新") != "" {
+	if GroupNameError(all, a, "") == "" || GroupNameError(all, a, "其他流量") == "" || GroupNameError(all, a, "全新") != "" {
 		t.Error("group name check")
 	}
 }
@@ -317,5 +317,194 @@ func TestExplainLooksInsideRuleSets(t *testing.T) {
 	// Without a way to look inside, as on mobile.
 	if r, _, _, _ := Explain("api.anthropic.com", nil, all); r != "ai" {
 		t.Errorf("%s", r)
+	}
+}
+
+// TestGroupsGoDirect: a route group can go without a node and keeps its
+// strategy for when it uses one again. The default route keeps its node
+// groups too, for global mode; another keeps a group of its own, so that
+// the core says whose the traffic was. 直连 and 拦截 have no such choice.
+func TestGroupsGoDirect(t *testing.T) {
+	var p Plan
+	p.SetStrategy(Default, ModeFixed, "hk")
+	p.ChangePolicy(Default, func(q *Policy) { q.Direct = true })
+	p.SetStrategy("ai", ModeFixed, "jp")
+	p.ChangePolicy("ai", func(q *Policy) { q.Direct = true })
+	g := p.AddGroup(nil, "Apple")
+	p.ChangePolicy(g, func(q *Policy) { q.Regions, q.Direct = []string{"US"}, true })
+	for _, id := range []string{"direct", Reject} { // a hand-edited file
+		p.ChangePolicy(id, func(q *Policy) { q.Direct = true })
+	}
+	all := Build(p, nil)
+	route := func(id string) Route { return all[slices.IndexFunc(all, func(r Route) bool { return r.ID == id })] }
+	def := route(Default)
+	if !def.Direct || !def.NodeGroups() || def.Policy.Mode != ModeFixed || def.Policy.Fixed != "hk" {
+		t.Errorf("default: %+v", def)
+	}
+	if def.OwnExit() {
+		t.Error("the default route has a group for going direct: MATCH says whose the traffic is")
+	}
+	if ai := route("ai"); !ai.Direct || ai.NodeGroups() || !ai.OwnExit() || ai.Policy.Mode != ModeFixed || ai.Policy.Fixed != "jp" {
+		t.Errorf("ai: %+v", ai)
+	}
+	if r := route(g); !r.Direct || r.NodeGroups() || !r.OwnExit() || !slices.Equal(r.Policy.Regions, []string{"US"}) {
+		t.Errorf("a group of the user's: %+v", r)
+	}
+	for _, id := range []string{"direct", Reject} {
+		if r := route(id); !r.Direct || r.NodeGroups() || r.OwnExit() || ChoosesExit(id) {
+			t.Errorf("%s: %+v", id, r)
+		}
+	}
+	p.ChangePolicy("ai", func(q *Policy) { q.Direct = false })
+	if ai := Build(p, nil)[slices.IndexFunc(all, func(r Route) bool { return r.ID == "ai" })]; ai.Direct || !ai.NodeGroups() || ai.OwnExit() || ai.Policy.Fixed != "jp" {
+		t.Errorf("ai back on a node: %+v", ai)
+	}
+	if err := p.Check(); err != nil {
+		t.Error(err)
+	}
+}
+
+// TestDefaultRouteName: the interface says 其他流量; the core's group keeps
+// its name, and a group the user already called that doesn't break the plan.
+func TestDefaultRouteName(t *testing.T) {
+	var p Plan
+	id := p.AddGroup(nil, "其他流量 2")
+	p.group(id).Name = "其他流量"
+	all := Build(p, nil)
+	def := all[slices.IndexFunc(all, func(r Route) bool { return r.ID == Default })]
+	if Title(def) != "其他流量" || Group(def) != "默认" {
+		t.Errorf("title %q, group %q", Title(def), Group(def))
+	}
+	if err := p.Check(); err != nil {
+		t.Error(err)
+	}
+}
+
+func groupIDs(p Plan) []string {
+	var out []string
+	for _, g := range p.Groups {
+		out = append(out, g.ID)
+	}
+	return out
+}
+
+func setOrder(p Plan) []string {
+	var out []string
+	for _, l := range Lines(Build(p, nil), nil) {
+		if l.Set != "" {
+			out = append(out, l.Route+"/"+l.Set)
+		}
+	}
+	return out
+}
+
+// TestMoveGroup: a group takes another's place, the ones between shifting
+// by one; the fixed groups neither move nor give up their place after the
+// others.
+func TestMoveGroup(t *testing.T) {
+	var p Plan
+	g := p.AddGroup(nil, "OpenAI")
+	want := func(ids ...string) {
+		t.Helper()
+		if got := groupIDs(p); !slices.Equal(got, ids) {
+			t.Errorf("groups %v, want %v", got, ids)
+		}
+	}
+	want(Default, "ai", "media", "dev", g, "direct", Reject)
+	if !p.MoveGroup(g, "ai") {
+		t.Error("moving up did nothing")
+	}
+	want(Default, g, "ai", "media", "dev", "direct", Reject)
+	if !p.MoveGroup(g, "media") {
+		t.Error("moving down did nothing")
+	}
+	want(Default, "ai", "media", g, "dev", "direct", Reject)
+	if !p.MoveGroup("ai", "dev") {
+		t.Error("moving to the end did nothing")
+	}
+	want(Default, "media", g, "dev", "ai", "direct", Reject)
+	for _, c := range [][2]string{{g, g}, {g, "direct"}, {g, Reject}, {g, Default}, {"direct", "ai"}, {Reject, "ai"}, {Default, "ai"}, {g, "nope"}, {"nope", g}} {
+		if p.MoveGroup(c[0], c[1]) {
+			t.Errorf("%s moved to the place of %s", c[0], c[1])
+		}
+	}
+	want(Default, "media", g, "dev", "ai", "direct", Reject)
+	if err := p.Check(); err != nil {
+		t.Error(err)
+	}
+}
+
+// TestRuleSetsGoAsListed: rule sets apply in the order of the list, by
+// their group and then their place in it, and the default route's last,
+// as it is listed. Moving a group or a set changes it: of a broad set made
+// first and a narrow one made later, the narrow one can be put first.
+func TestRuleSetsGoAsListed(t *testing.T) {
+	var p Plan
+	other := p.AddRuleSet(nil, Default, "everything", "https://x.example/all.yaml")
+	broad := p.AddRuleSet(nil, "ai", "AI", "https://x.example/ai.yaml")
+	g := p.AddGroup(nil, "OpenAI")
+	narrow := p.AddRuleSet(nil, g, "OpenAI", "https://x.example/openai.yaml")
+	want := func(sets ...string) {
+		t.Helper()
+		if got := setOrder(p); !slices.Equal(got, sets) {
+			t.Errorf("sets %v, want %v", got, sets)
+		}
+	}
+	want("ai/"+broad, g+"/"+narrow, Default+"/"+other)
+	p.MoveGroup(g, "ai")
+	want(g+"/"+narrow, "ai/"+broad, Default+"/"+other)
+
+	second := p.AddRuleSet(nil, "ai", "AI 2", "https://x.example/ai2.yaml")
+	third := p.AddRuleSet(nil, "ai", "AI 3", "https://x.example/ai3.yaml")
+	want(g+"/"+narrow, "ai/"+broad, "ai/"+second, "ai/"+third, Default+"/"+other)
+	if !p.MoveRuleSet(third, broad) {
+		t.Error("moving a set up did nothing")
+	}
+	want(g+"/"+narrow, "ai/"+third, "ai/"+broad, "ai/"+second, Default+"/"+other)
+	if !p.MoveRuleSet(third, second) {
+		t.Error("moving a set down did nothing")
+	}
+	want(g+"/"+narrow, "ai/"+broad, "ai/"+second, "ai/"+third, Default+"/"+other)
+	svc := p.AddService(nil, "ai", "mine")
+	for _, c := range [][2]string{{third, third}, {third, narrow}, {narrow, third}, {third, svc}, {svc, third}, {third, "openai"}, {"nope", third}} {
+		if p.MoveRuleSet(c[0], c[1]) {
+			t.Errorf("%s moved to the place of %s", c[0], c[1])
+		}
+	}
+	want(g+"/"+narrow, "ai/"+broad, "ai/"+second, "ai/"+third, Default+"/"+other)
+
+	// What decides between two sets is their order alone.
+	inSet := func(id, host, ip string) (string, bool) {
+		return "DOMAIN-SUFFIX,openai.com", (id == broad || id == narrow) && host == "api.openai.com"
+	}
+	if r, _, set, _, _ := ExplainSets("api.openai.com", nil, Build(p, nil), inSet); r != g || set != narrow {
+		t.Errorf("with the narrow set first: %s %s", r, set)
+	}
+	p.MoveGroup(g, "dev")
+	if r, _, set, _, _ := ExplainSets("api.openai.com", nil, Build(p, nil), inSet); r != "ai" || set != broad {
+		t.Errorf("with the broad set first: %s %s", r, set)
+	}
+}
+
+// TestGroupOrderBreaksTies: rules stay sorted by how specific they are
+// wherever their groups are; of two equally specific ones, the group listed
+// first has its rule first.
+func TestGroupOrderBreaksTies(t *testing.T) {
+	var p Plan
+	before := Lines(Build(p, nil), nil)
+	p.MoveGroup("dev", "ai")
+	after := Lines(Build(p, nil), nil)
+	if len(before) != len(after) {
+		t.Fatalf("%d lines became %d", len(before), len(after))
+	}
+	for i := 1; i < len(after); i++ {
+		ca, la := rank(after[i-1].Text)
+		cb, lb := rank(after[i].Text)
+		if ca > cb || ca == cb && la > lb {
+			t.Fatalf("%q is before the more specific %q", after[i-1].Text, after[i].Text)
+		}
+		if ca == cb && la == lb && after[i-1].Route == "ai" && after[i].Route == "dev" {
+			t.Fatalf("%q of AI is before the equally specific %q of dev, which is listed first", after[i-1].Text, after[i].Text)
+		}
 	}
 }

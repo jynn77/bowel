@@ -1,4 +1,4 @@
-//go:build !darwin && !windows
+//go:build !darwin && !windows && !linux
 
 package sysproxy
 
@@ -9,14 +9,12 @@ import (
 	"github.com/oboo/moho/internal/i18n"
 )
 
-// TODO: gsettings/kwriteconfig on Linux.
-
 // DefaultBypass is the bypass list a service gets back when Forget clears
 // one that was all Moho's.
 var DefaultBypass []string
 
 func Enable(host string, port int, bypass []string) error {
-	return errors.New(i18n.T("原型暂只支持 macOS 的系统代理", "For now the system proxy works on macOS only"))
+	return errors.New(i18n.T("这个系统上还不能设置系统代理", "The system proxy can't be set on this system yet"))
 }
 func Disable() error { return nil }
 

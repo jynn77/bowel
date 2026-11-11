@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -9,6 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/oboo/moho/internal/devnet"
 	"github.com/oboo/moho/internal/routes"
 )
 
@@ -184,5 +186,107 @@ func TestAutoGroupsUseMainURLs(t *testing.T) {
 	}
 	if got["流媒体·自动"] != "https://www.youtube.com/generate_204" || got["AI 服务·自动"] != in.TestURL {
 		t.Fatalf("groups: %+v", got)
+	}
+}
+
+func TestIPv6ModeJSON(t *testing.T) {
+	for in, want := range map[string]IPv6Mode{`true`: IPv6On, `false`: IPv6Off, `"on"`: IPv6On, `"off"`: IPv6Off, `"auto"`: IPv6Auto} {
+		var m IPv6Mode
+		if err := json.Unmarshal([]byte(in), &m); err != nil || m != want {
+			t.Errorf("%s: %q %v", in, m, err)
+		}
+	}
+	for _, bad := range []string{`"maybe"`, `1`} {
+		var m IPv6Mode
+		if err := json.Unmarshal([]byte(bad), &m); err == nil {
+			t.Errorf("%s was taken", bad)
+		}
+	}
+	for m, want := range map[IPv6Mode]string{IPv6Off: `false`, IPv6On: `"on"`, IPv6Auto: `"auto"`} {
+		if b, err := json.Marshal(m); err != nil || string(b) != want {
+			t.Errorf("%s: %s %v", m, b, err)
+		}
+	}
+	// What a version from before the modes does with what this one saved:
+	// it reads the rest, and keeps its default for a value it can't take.
+	var old struct {
+		IPv6 bool `json:"ipv6"`
+		Port int  `json:"port"`
+	}
+	old.IPv6 = true
+	_ = json.Unmarshal([]byte(`{"ipv6":"auto","port":7}`), &old)
+	if !old.IPv6 || old.Port != 7 {
+		t.Errorf("downgrade: %+v", old)
+	}
+}
+
+func TestIPv6ModeEnabled(t *testing.T) {
+	if IPv6Off.Enabled(true) || !IPv6On.Enabled(false) || IPv6Auto.Enabled(false) || !IPv6Auto.Enabled(true) {
+		t.Error("wrong")
+	}
+}
+
+// Every place the core's config names IPv6 follows what Auto found, and
+// the TUN's routes are left to the core: it drops them along with the
+// address when ipv6 is false.
+func TestBuildConfigIPv6(t *testing.T) {
+	base := func() Input {
+		return Input{Mode: "rule", MixedPort: 7890, LogLevel: "info", TestURL: "http://x/", ProbePort: 7999, Routes: routes.Template()}
+	}
+	cases := []struct {
+		name string
+		in   func(*Input)
+	}{
+		{"tun", func(i *Input) { i.Tun = true }},
+		{"dns switch", func(i *Input) { i.Options.DNS = true }},
+		{"plain", func(i *Input) {}},
+		{"dev policy", func(i *Input) { i.Dev = devnet.Overlay{Policy: []devnet.Policy{{Pattern: "+.x", Server: "1.1.1.1"}}} }},
+		{"imported", func(i *Input) {
+			i.Imported = &Imported{Rules: []string{"MATCH,DIRECT"}}
+		}},
+	}
+	for _, c := range cases {
+		for _, tc := range []struct {
+			mode   IPv6Mode
+			usable bool
+			want   bool
+		}{{IPv6Auto, true, true}, {IPv6Auto, false, false}, {IPv6On, false, true}, {IPv6Off, true, false}} {
+			in := base()
+			c.in(&in)
+			in.IPv6, in.IPv6Usable = tc.mode, tc.usable
+			raw, err := BuildConfig(in)
+			if err != nil {
+				t.Fatalf("%s: %v", c.name, err)
+			}
+			var cfg struct {
+				IPv6 bool `yaml:"ipv6"`
+				DNS  struct {
+					IPv6 bool `yaml:"ipv6"`
+				} `yaml:"dns"`
+			}
+			if err := yaml.Unmarshal(raw, &cfg); err != nil {
+				t.Fatal(err)
+			}
+			if cfg.IPv6 != tc.want || cfg.DNS.IPv6 != tc.want {
+				t.Errorf("%s %s usable=%v: top %v dns %v", c.name, tc.mode, tc.usable, cfg.IPv6, cfg.DNS.IPv6)
+			}
+		}
+	}
+}
+
+// Each system names TUN devices its own way.
+func TestCheckTunDevice(t *testing.T) {
+	for _, c := range []struct {
+		name, goos string
+		ok         bool
+	}{
+		{"", "darwin", true}, {"utun1024", "darwin", true}, {"tun0", "darwin", false},
+		{"", "linux", true}, {"tun0", "linux", true}, {"bowel", "linux", true}, {"utun1024", "linux", true},
+		{"a-name-of-16-byt", "linux", false}, {"tun 0", "linux", false}, {"a/b", "linux", false}, {"..", "linux", false},
+		{"bowel", "windows", true}, {"My Tunnel", "windows", true},
+	} {
+		if err := checkTunDevice(c.name, c.goos); (err == nil) != c.ok {
+			t.Errorf("%q on %s: %v", c.name, c.goos, err)
+		}
 	}
 }

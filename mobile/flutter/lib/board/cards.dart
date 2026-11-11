@@ -544,7 +544,7 @@ class _RoutesCard extends StatelessWidget {
     if (kind == 'normal') {
       final nameWidth = _nameColumn(px, l.text(14.5, weight: 600, lh: 20));
       return _pad(bottom: 2, [
-        _flyText('k-routes', all.length > 3 ? tr('其他路由 · {0} 条', 'Other routes · {0}', [all.length]) : tr('其他路由', 'Other routes'), l.text(12, weight: 500, color: l.mute, lh: 18, ls: .08)),
+        _flyText('k-routes', all.length > 3 ? tr('分流 · {0} 条', 'By rule · {0}', [all.length]) : tr('分流', 'By rule'), l.text(12, weight: 500, color: l.mute, lh: 18, ls: .08)),
         for (final (i, r) in px.indexed)
           Unroll(
             step: (i + 1) * 2,
@@ -559,7 +559,7 @@ class _RoutesCard extends StatelessWidget {
       return Padding(
         padding: const EdgeInsets.only(left: 16, right: 12),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Unroll(child: _flyText('k-routes', tr('其他路由', 'Other routes'), l.text(11.5, weight: 500, color: l.mute, lh: 15, ls: .06))),
+          Unroll(child: _flyText('k-routes', tr('分流', 'By rule'), l.text(11.5, weight: 500, color: l.mute, lh: 15, ls: .06))),
           Unroll(
             step: 2,
             child: Row(children: [
@@ -1025,7 +1025,7 @@ class _HeroCard extends StatelessWidget {
       return Stack(children: [
         Positioned.fill(
           child: _pad([
-            _flyText('k-hero', tr('当前出口 · {0}', 'Exit · {0}', [s.mode == 'global' ? tr('全局', 'Global') : tr('默认路由', 'Default route')]), kicker),
+            _flyText('k-hero', tr('当前出口 · {0}', 'Exit · {0}', [s.mode == 'global' ? tr('全局', 'Global') : tr('其他流量', 'Other')]), kicker),
             const SizedBox(height: 2),
             Padding(
               padding: const EdgeInsets.only(right: 56),
@@ -1082,7 +1082,7 @@ class _HeroCard extends StatelessWidget {
       builder: (context, c) => _Detail(
         s: s,
         flyId: 'hero',
-        kicker: _detKicker(l, 'hero', tr('当前出口 · 默认路由', 'Exit · Default route')),
+        kicker: _detKicker(l, 'hero', tr('其他流量的出口', 'Exit for other traffic')),
         title: Shim(active: busy, child: _flyExit('exit-default', n, _h3(l))),
         body: _PickerList(s: s, route: r0),
         above: _PickerTool(s: s),

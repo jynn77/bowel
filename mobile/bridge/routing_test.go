@@ -209,7 +209,7 @@ func TestRuleLeadsToItsService(t *testing.T) {
 		t.Fatal(err)
 	}
 	var id string
-	for _, s := range group(t, x, "默认").Services {
+	for _, s := range group(t, x, "其他流量").Services {
 		if s.Name == "工作站" {
 			id = s.ID
 		}

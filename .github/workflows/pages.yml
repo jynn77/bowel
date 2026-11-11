@@ -1,4 +1,4 @@
-# Publishes the website in site/ to GitHub Pages.
+# Builds the website in site/ (scripts/build-site.py) and publishes it to GitHub Pages.
 name: Pages
 
 on:
@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - "site/**"
+      - "scripts/build-site.py"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -28,9 +29,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - run: python3 scripts/build-site.py
+
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: site
+          path: build/site
 
       - id: deploy
         uses: actions/deploy-pages@v5

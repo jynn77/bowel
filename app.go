@@ -39,6 +39,7 @@ import (
 	"github.com/oboo/moho/internal/locate"
 	"github.com/oboo/moho/internal/mihomo"
 	"github.com/oboo/moho/internal/monitor"
+	"github.com/oboo/moho/internal/nowindow"
 	"github.com/oboo/moho/internal/procinfo"
 	"github.com/oboo/moho/internal/provider"
 	"github.com/oboo/moho/internal/routes"
@@ -62,6 +63,10 @@ type App struct {
 	coreBin   string      // the bundled core
 	tunBin    string      // the setuid copy TUN runs
 	tunStale  atomic.Bool // tunBin is another version than coreBin
+	// tunFault is why the core at tunBin did not start; while it is set
+	// the bundled core runs in its place, with TUN out of its config.
+	tunFault  atomic.Pointer[string]
+	tunGone   atomic.Bool // what tunBin's installation stands for was removed: it is to be made again
 	probePort int
 	gw        *gateway.Gateway
 
@@ -80,12 +85,13 @@ type App struct {
 	locating    map[string]bool
 	qualifying  bool // a quality lookup is under way: one at a time
 	sys         sysproxy.Status
-	// sysErr is why the last change of the system proxy failed. The
+	// proxyErr is why the last change of the system proxy failed. The
 	// interface says so instead of leaving "another program changed it"
 	// as the only reading of a switch that did nothing.
-	sysErr    string
-	proxies   map[string]mihomo.Proxy
-	provNodes map[string][]string // provider id → node names, in the provider's order
+	proxyErr    string       // why the last try to take the system proxy failed
+	failed      *failedWrite // that try, if the OS refused it: see retryWrite
+	proxies     map[string]mihomo.Proxy
+	provNodes   map[string][]string // provider id → node names, in the provider's order
 	// nodesSig is the names /proxies had when provNodes was read, at
 	// nodesAt: the providers' lists are read again when they change.
 	nodesSig uint64
@@ -127,6 +133,13 @@ type App struct {
 	gwProbing bool
 	gwErr     error
 	upd       updateState
+	// headless: no window, tray or main thread's loop (`bowel daemon`,
+	// app_daemon.go). stop ends such a run.
+	headless bool
+	stop     chan struct{}
+	// watchedAt is when a command last read the connections or the logs,
+	// in Unix seconds: they are polled every second while one watches.
+	watchedAt atomic.Int64
 	dev       devState
 	tools     toolsState
 }
@@ -152,16 +165,18 @@ func newApp() (*App, error) {
 		return nil, err
 	}
 	i18n.Set(st.Get().Language)
-	ps, err := provider.Open(filepath.Join(data, "providers"))
+	provDir := storeDir(data, "providers", runtime.GOOS)
+	ps, err := provider.Open(provDir)
 	if err != nil {
 		return nil, err
 	}
-	sets, err := ruleset.Open(filepath.Join(data, "rulesets"))
+	sets, err := ruleset.Open(storeDir(data, "rulesets", runtime.GOOS))
 	if err != nil {
 		return nil, err
 	}
 	bin := bundledCore()
-	tunBin := filepath.Join(data, "bin", filepath.Base(bin))
+	tun.CoreDir = filepath.Join(data, "core") // where the core runs, below
+	tunBin := tun.Path(data, filepath.Base(bin))
 	run := bin
 	stale := false
 	if tun.Installed(tunBin) {
@@ -172,10 +187,11 @@ func newApp() (*App, error) {
 			run = tunBin
 		}
 	}
-	cm, err := core.New(run, filepath.Join(data, "core"))
+	cm, err := core.New(run, tun.CoreDir)
 	if err != nil {
 		return nil, err
 	}
+	cm.Spawn = spawnTun
 	probe, err := core.FreePort()
 	if err != nil {
 		return nil, err
@@ -192,15 +208,46 @@ func newApp() (*App, error) {
 	}
 	ps.Vet = a.vetUpdate
 	a.tunStale.Store(stale)
-	cm.SafePaths = []string{filepath.Join(data, "providers"), sets.Dir()}
+	cm.SafePaths = []string{provDir, sets.Dir()} // for a core that is the app's child; see storeDir
 	a.keepRuleSets()
 	a.loadStrip()                     // what node names are shown without, before anything shows one
 	a.mon.SkipGroup = core.ProbeGroup // the location probe's own traffic
 	a.mon.FindProcess = procinfo.New().Find
 	a.mon.Every = a.pollEvery
 	cm.OnStatus = func(s core.Status) { a.onCoreStatus(s) }
+	cm.OnListenError = func() { a.emit() }
 	a.mon.OnTick(a.onTick)
 	return a, nil
+}
+
+// storeDir is where the files of one kind ("providers", "rulesets") are
+// kept, which the core's config names. mihomo reads nothing outside its
+// own directory unless a SAFE_PATHS variable allows it, and only a core
+// that is the app's child can be given one. On Windows the core TUN runs
+// on is started by a scheduled task, with no environment of the app's, so
+// there the files live inside the core's directory, and what an earlier
+// version kept beside it is moved in once. A move that fails (a file in
+// use) leaves the files where they were, for the next start to try again.
+func storeDir(data, name, goos string) string {
+	old := filepath.Join(data, name)
+	if goos != "windows" {
+		return old
+	}
+	dir := filepath.Join(data, "core", name)
+	if _, err := os.Lstat(dir); err == nil {
+		return dir
+	}
+	if _, err := os.Lstat(old); err != nil {
+		return dir // nothing to move
+	}
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err == nil {
+		err = os.Rename(old, dir)
+		if err == nil {
+			return dir
+		}
+		log.Printf("moving %s into the core's directory: %v", old, err)
+	}
+	return old
 }
 
 // bundledCore finds mihomo: $MOHO_CORE, else bin/mihomo among the resources.
@@ -277,8 +324,10 @@ func (a *App) start() {
 	go a.updateLoop()
 	go a.devLoop()
 	go a.refreshTools()
+	go a.probeSources()
 	go a.debugDriver()
 	a.startMCP()
+	a.startCLI()
 }
 
 func (a *App) openWindow() {
@@ -361,6 +410,16 @@ func (a *App) showWindow() {
 	mygo.App.Focus()
 }
 
+// onSecondInstance runs when bowel is started again while it runs: the
+// window is most likely hidden, and that start was to get it back. On the
+// main thread. An app on its way out stays hidden.
+func (a *App) onSecondInstance([]string, string) {
+	if a.leaving || a.isQuitting() {
+		return
+	}
+	a.showWindow()
+}
+
 func (a *App) uiRef() *UI {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -368,15 +427,23 @@ func (a *App) uiRef() *UI {
 }
 
 // pollEvery is how often the monitor reads the core's connections: every
-// second while the window or the menu bar panel shows them, every 5 s
-// otherwise. The totals stay exact, as they are the core's own counters;
-// what goes is the rates' detail and connections too short to be seen.
+// second while the window or the menu bar panel shows them, every 2 s
+// while only the menu bar icon shows the rates (Settings.TraySpeed), every
+// 5 s otherwise. The totals stay exact, as they are the core's own
+// counters; what goes is the rates' detail and connections too short to
+// be seen.
 func (a *App) pollEvery() time.Duration {
 	if a.winShown.Load() {
 		return time.Second
 	}
 	if u := a.uiRef(); u != nil && u.panel.win.Load() != nil {
 		return time.Second
+	}
+	if time.Now().Unix()-a.watchedAt.Load() < 5 {
+		return time.Second
+	}
+	if st := a.settings.Get(); st.TraySpeed && (a.takeoverOn(st) || trafficNow(a.tick())) {
+		return traySpeedEvery
 	}
 	return 5 * time.Second
 }
@@ -435,6 +502,9 @@ func (a *App) refresh() {
 		if s, err := sysproxy.Check(st.MixedPort); err == nil {
 			a.mu.Lock()
 			a.sys = s
+			if s.Ours {
+				a.proxyErr = ""
+			}
 			a.mu.Unlock()
 		}
 	}
@@ -520,6 +590,26 @@ func (a *App) onCoreStatus(s core.Status) {
 	a.emit()
 }
 
+// tunEntry is TUN as it really is. wanted is the user's choice and on is
+// whether takeover is; installed is whether its core has its
+// authorisation; fault is why that core did not start, when another runs
+// in its place.
+func tunEntry(wanted, on, installed bool, fault string, state core.State) Entry {
+	e := Entry{Wanted: wanted, Status: "off"}
+	switch {
+	case !installed:
+		e.Status = "install"
+	case !on || !wanted:
+	case fault != "":
+		e.Status, e.Detail = "error", fmt.Sprintf(i18n.T("TUN 的内核没有启动，其余功能照常：%s", "The core TUN runs on didn't start; everything else works: %s"), fault)
+	case state == core.Running:
+		e.Status = "on"
+	default:
+		e.Status, e.Detail = "error", i18n.T("内核没有运行", "The core isn't running")
+	}
+	return e
+}
+
 // ---- Config ----
 
 func (a *App) takeoverOn(s settings.Settings) bool { return !s.Paused && (s.SystemProxy || s.Tun) }
@@ -528,6 +618,7 @@ func (a *App) takeoverOn(s settings.Settings) bool { return !s.Paused && (s.Syst
 func (a *App) applyConfig() error {
 	a.dropImported() // a provider's file, or whether it is in use, may have changed
 	s := a.settings.Get()
+	a.ensureIPv6(s)
 	im := a.importedNow()
 	err := a.applyDev(s, func(dev devnet.Overlay) ([]byte, error) { return a.buildConfig(s, dev, im) })
 	if err != nil {
@@ -561,10 +652,10 @@ func (a *App) buildConfig(s settings.Settings, dev devnet.Overlay, im *core.Impo
 	scopes, orders := a.nodeLists(all)
 	return core.BuildConfig(core.Input{
 		Providers: refs, RuleSets: a.ruleSetRefs(s), Routes: all, UserRules: routes.Active(all, s.Rules), Scopes: scopes, Orders: orders, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
-		Tun:      s.Tun && a.takeoverOn(s) && tun.Installed(a.tunBin),
+		Tun:      s.Tun && a.takeoverOn(s) && osTun.installed(a.tunBin) && a.tunFault.Load() == nil,
 		Gateway:  a.gatewayOn(s),
 		LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: a.probePort, Controller: a.core.ControllerFields(),
-		Options: s.Options, Dev: dev, Imported: im,
+		Options: s.Options, Dev: dev, IPv6Usable: a.devEnv().IPv6.Usable, Imported: im,
 	})
 }
 
@@ -580,11 +671,12 @@ func (a *App) pointGlobal() {
 // osProxy is what changes the system proxy. Tests replace it, so that they
 // can never change the machine's settings.
 var osProxy = struct {
-	enable   func(host string, port int, bypass []string) error
-	disable  func() error
-	snapshot func() (sysproxy.Saved, error)
-	restore  func(context.Context, sysproxy.Saved) error
-}{sysproxy.Enable, sysproxy.Disable, sysproxy.Snapshot, sysproxy.Restore}
+	enable    func(host string, port int, bypass []string) error
+	disable   func() error
+	snapshot  func() (sysproxy.Saved, error)
+	restore   func(context.Context, sysproxy.Saved) error
+	listening func(ctx context.Context, host string, port int) bool
+}{sysproxy.Enable, sysproxy.Disable, sysproxy.Snapshot, sysproxy.Restore, sysproxy.Listening}
 
 // applySystemProxy makes the OS match the settings. prev are mixed ports
 // the system may still point at, as after the port changed.
@@ -627,11 +719,12 @@ func (a *App) applySystemProxy(prev ...int) {
 	case opErr != nil || (want && !now.Ours):
 		// What was asked for did not happen: say why, in the log and on
 		// the screen, rather than letting another program take the blame.
-		a.writeSystemProxyLog(fmt.Sprintf("%s | %s | after={on:%v ours:%v %s:%d} | err: %v",
-			step, state, now.On, now.Ours, now.Host, now.Port, opErr))
 		if opErr == nil {
 			opErr = fmt.Errorf("the change did not take: the proxy is %v, ours %v", now.On, now.Ours)
 		}
+		log.Println("system proxy:", opErr)
+		a.writeSystemProxyLog(fmt.Sprintf("%s | %s | after={on:%v ours:%v %s:%d} | err: %v",
+			step, state, now.On, now.Ours, now.Host, now.Port, opErr))
 		a.noteSystemProxy(now, opErr)
 	default:
 		a.noteSystemProxy(now, nil)
@@ -646,9 +739,9 @@ func (a *App) noteSystemProxy(st sysproxy.Status, err error) {
 	a.mu.Lock()
 	a.sys = st
 	if err != nil {
-		a.sysErr = err.Error()
+		a.proxyErr = err.Error()
 	} else {
-		a.sysErr = ""
+		a.proxyErr = ""
 	}
 	a.mu.Unlock()
 }
@@ -687,28 +780,138 @@ func (a *App) enableProxy(s settings.Settings, prev ...int) error {
 			}
 		}
 	}
+	return a.pointProxy(s, ports, keep)
+}
+
+// pointProxy does enableProxy's work: unless keep says the copy on disk
+// stays, it first replaces that with what the system has, without ports.
+// A failure is kept for the status to tell: it is not another program's doing.
+func (a *App) pointProxy(s settings.Settings, ports []int, keep bool) error {
+	failed, err := a.writeProxy(s, ports, keep)
+	a.mu.Lock()
+	a.proxyErr, a.failed = "", failed
+	if err != nil {
+		a.proxyErr = firstLine(err.Error())
+	}
+	a.mu.Unlock()
+	return err
+}
+
+// writeProxy says, when the OS refused the write, what retryWrite needs to
+// try it again. The copy on disk is done by then, whatever the write left.
+func (a *App) writeProxy(s settings.Settings, ports []int, keep bool) (*failedWrite, error) {
 	if !keep {
 		saved, err := osProxy.snapshot()
 		if err != nil {
-			return fmt.Errorf("reading the system proxy: %w", err)
+			return nil, fmt.Errorf("reading the system proxy: %w", err)
 		}
 		saved.Forget(ports...)
 		b, err := json.MarshalIndent(saved, "", "  ")
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if err := os.WriteFile(a.proxyBackup(), b, 0o600); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	bypass := a.bypassOf(s)
 	if err := osProxy.enable("127.0.0.1", s.MixedPort, bypass); err != nil {
-		return err
+		left, serr := osProxy.snapshot()
+		if serr != nil {
+			return nil, err // no telling later whether another program came
+		}
+		return &failedWrite{left: left, inputs: a.writeInputs(s)}, err
 	}
 	a.dev.mu.Lock()
 	a.dev.bypass = bypass
 	a.dev.mu.Unlock()
-	return nil
+	return nil, nil
+}
+
+// proxyRetries is how many times a write the OS refused is tried again. With
+// the waits of retryWrite that is over some ten minutes, enough for what
+// passes; a write that can never work costs a handful of tries, on every OS,
+// without telling the errors apart.
+const proxyRetries = 5
+
+// failedWrite is a write of the system proxy that the OS refused. Fields
+// change under proxyMu only.
+type failedWrite struct {
+	left   sysproxy.Saved // the system proxy just after it
+	inputs string         // what the write was made from: see writeInputs
+	tries  int            // tried again so many times
+	wait   int            // devLoop ticks before the next try
+}
+
+// writeInputs is what a write depends on besides the OS: when it changes, a
+// write that failed may work, and the tries start over.
+func (a *App) writeInputs(s settings.Settings) string {
+	env := a.devEnv()
+	return strings.Join(append([]string{env.PrimaryIface, overlayOf(s, env).Fingerprint()}, s.Bypass...), "\n")
+}
+
+// coreUp says whether there is a core for the system proxy to point at.
+var coreUp = func(a *App) bool { return a.core.Status().State == core.Running }
+
+// retryWrite tries again a write of the system proxy that the OS refused.
+// That is bowel finishing what it was asked to do, unlike taking the proxy
+// back from another program, which only the user decides: so nothing happens
+// without a failure of bowel's own on record, and once the system proxy is
+// no longer as the failure left it, bowel lets it be. The caller holds proxyMu.
+func (a *App) retryWrite(s settings.Settings) {
+	a.mu.Lock()
+	f, why := a.failed, a.proxyErr
+	if why == "" {
+		a.failed = nil
+	}
+	a.mu.Unlock()
+	if f == nil || why == "" || !coreUp(a) {
+		return
+	}
+	if in := a.writeInputs(s); in != f.inputs {
+		f.inputs, f.tries, f.wait = in, 0, 0
+	}
+	if f.tries >= proxyRetries {
+		return
+	}
+	if f.wait > 0 {
+		f.wait--
+		return
+	}
+	cur, err := sysproxy.Check(s.MixedPort)
+	if err != nil || cur.Ours {
+		return // the next refresh clears the failure of a proxy that is ours
+	}
+	now, err := osProxy.snapshot()
+	if err != nil {
+		return
+	}
+	if !reflect.DeepEqual(now, f.left) {
+		a.mu.Lock()
+		a.failed = nil
+		a.mu.Unlock()
+		log.Println("system proxy: changed since the failed write, not trying again")
+		return
+	}
+	// The copy on disk is from before the first failure. What the system has
+	// now may be half of bowel's write, so it must not replace that copy.
+	err = a.pointProxy(s, []int{s.MixedPort}, exists(a.proxyBackup()))
+	if err == nil {
+		log.Println("system proxy: taken over on try", f.tries+2)
+		return
+	}
+	tries := f.tries + 1
+	a.mu.Lock()
+	if a.failed != nil {
+		a.failed.tries, a.failed.wait = tries, 1<<tries-1
+	}
+	a.mu.Unlock()
+	if firstLine(err.Error()) != why {
+		log.Println("system proxy:", err)
+	}
+	if tries == proxyRetries {
+		log.Println("system proxy: giving up after", tries+1, "tries:", why)
+	}
 }
 
 // disableProxy puts back the system proxy enableProxy kept, or, with no
@@ -720,6 +923,7 @@ func (a *App) disableProxy(ctx context.Context, port int) error {
 	if err != nil || json.Unmarshal(b, &saved) != nil {
 		return osProxy.disable()
 	}
+	saved.TurnOffDead(func(host string, port int) bool { return osProxy.listening(ctx, host, port) })
 	if err := osProxy.restore(ctx, saved); err != nil {
 		if ctx.Err() != nil {
 			return err
@@ -796,6 +1000,8 @@ func (a *App) setTun(on bool) error {
 		if err := a.installTun(); err != nil {
 			return err
 		}
+	} else if on {
+		a.retryTunCore()
 	}
 	if _, err := a.settings.Update(func(s *settings.Settings) {
 		s.Tun = on
@@ -860,13 +1066,63 @@ func (a *App) closeTun() {
 	time.Sleep(tunOffWait) // the route table follows within it
 }
 
-// tunNeedsInstall is whether turning TUN on takes an authorization.
+// tunNeedsInstall is whether turning TUN on takes an authorization. On
+// Linux an installation from before the polkit rule, or whose rule names
+// another device than the settings now do, is one that does.
 func (a *App) tunNeedsInstall() bool {
-	return !osTun.installed(a.tunBin) || a.tunStale.Load()
+	a.tellTunDevice()
+	return !osTun.installed(a.tunBin) || a.tunStale.Load() || a.tunGone.Load() || osTun.needsRule(a.tunBin)
+}
+
+// tellTunDevice gives the installation the device's name as the settings
+// have it now, which the rule it leaves on Linux names.
+func (a *App) tellTunDevice() {
+	if a.settings != nil {
+		tun.SetDevice(a.settings.Get().TunDevice)
+	}
+}
+
+// leaveTunCore answers a core that did not come up: when it was the copy
+// TUN runs on, the bundled core takes its place, so that one failure does
+// not cost the user everything else the core does, and why is kept for
+// the TUN entry to show. It reports whether the core is to be started
+// again, with a config built anew (TUN is out of it now).
+func (a *App) leaveTunCore(err error) bool {
+	var se *core.StartError
+	if !errors.As(err, &se) || a.tunBin == a.coreBin || a.core.Bin != a.tunBin {
+		return false
+	}
+	why := err.Error()
+	a.tunFault.Store(&why)
+	if errors.Is(err, tun.ErrGone) {
+		a.tunGone.Store(true)
+	}
+	log.Println("tun: its core did not start, running the bundled one:", why)
+	a.core.Stop()
+	a.core.SetBin(a.coreBin)
+	return true
+}
+
+// retryTunCore goes back to the copy TUN runs on after leaveTunCore left
+// it, for the next config to start; and a core that is not running has
+// nothing to reload, so the next config starts it whatever it was.
+func (a *App) retryTunCore() {
+	if a.tunFault.Swap(nil) == nil {
+		return
+	}
+	a.core.Stop()
+	a.core.SetBin(a.tunBin)
+}
+
+// tunFailed is whether TUN is wanted and is not what the user has: asking
+// for it again is then a request to try again, not one already met.
+func (a *App) tunFailed() bool {
+	return a.snapshot().Takeover.Tun.Status == "error"
 }
 
 // installTun puts this version's core in the root copy and runs on it.
 func (a *App) installTun() error {
+	a.tellTunDevice()
 	if err := osTun.install(a.coreBin, a.tunBin); err != nil {
 		return err
 	}
@@ -877,6 +1133,8 @@ func (a *App) installTun() error {
 // tunInstalled moves the core to the root copy, just (re)installed.
 func (a *App) tunInstalled() {
 	a.tunStale.Store(false)
+	a.tunGone.Store(false)
+	a.tunFault.Store(nil)
 	a.core.Stop()
 	a.core.SetBin(a.tunBin)
 }
@@ -966,14 +1224,25 @@ func (a *App) setMode(mode string) error {
 	return nil
 }
 
+// retake points the system proxy back at the core, on the user's word.
+// What the system has now is another program's, so a copy already on disk
+// stays: that is what the user had before bowel.
 func (a *App) retake() error {
 	done := a.begin("retake")
 	defer done()
-	if err := a.enableProxy(a.settings.Get()); err != nil {
-		return err
-	}
+	err := a.pointBack()
 	a.refresh()
-	return nil
+	return err
+}
+
+func (a *App) pointBack() error {
+	a.proxyMu.Lock()
+	defer a.proxyMu.Unlock()
+	if a.isQuitting() {
+		return nil // shutdown has put the system proxy back: it stays so
+	}
+	s := a.settings.Get()
+	return a.pointProxy(s, []int{s.MixedPort}, exists(a.proxyBackup()))
 }
 
 // updateSettings changes the core's options from the 设置 page: it checks
@@ -1010,12 +1279,13 @@ func migrateData(dir string) {
 }
 
 // appOnly says whether next differs from old only in what the core does
-// not see: the language, starting hidden, the theme color, the appearance,
-// the skin and the board's borders.
+// not see: the language, starting hidden, the menu bar's speed, the theme
+// color, the appearance, the skin and the board's borders.
 func appOnly(old, next settings.Settings) bool {
 	next.Language, next.StartHidden, next.Accent, next.Appearance = old.Language, old.StartHidden, old.Accent, old.Appearance
-	next.Skin, next.Borders = old.Skin, old.Borders
-	next.StripRules, next.CommonRegions = old.StripRules, old.CommonRegions
+	next.Skin, next.Borders, next.CommonRegions = old.Skin, old.Borders, old.CommonRegions
+	next.TraySpeed = old.TraySpeed
+	next.StripRules = old.StripRules
 	next.MCPPolicy = old.MCPPolicy                  // the MCP server's, not the core's
 	if routingCoreSame(old.Routing, next.Routing) { // a strategy is a selector's position
 		next.Routing = old.Routing
@@ -1027,6 +1297,19 @@ func appOnly(old, next settings.Settings) bool {
 }
 
 func (a *App) updateSettings(fn func(*settings.Settings)) error {
+	return a.updateSettingsAnd(fn, false)
+}
+
+// listenPorts are the ports the core listens on with settings s, the probe's
+// aside; 0 for one that is off.
+func listenPorts(s settings.Settings) []int {
+	return append([]int{s.MixedPort, s.HTTPPort, s.SocksPort, s.ExtPort()}, s.ExtraPortNumbers()...)
+}
+
+// updateSettingsAnd is updateSettings; with reapply the core's config is
+// built again even when the settings leave it as it was, for a change that
+// comes with other providers or rule sets (importConfig).
+func (a *App) updateSettingsAnd(fn func(*settings.Settings), reapply bool) error {
 	a.setMu.Lock() // one change at a time: each starts from the last
 	defer a.setMu.Unlock()
 	done := a.begin("settings")
@@ -1038,32 +1321,40 @@ func (a *App) updateSettings(fn func(*settings.Settings)) error {
 		return err
 	}
 	// A port the core does not listen on yet must be free.
-	for _, p := range [][2]int{{old.MixedPort, next.MixedPort}, {old.HTTPPort, next.HTTPPort},
-		{old.SocksPort, next.SocksPort}, {old.ExtPort(), next.ExtPort()}} {
-		if p[1] == 0 || p[1] == p[0] {
-			continue
-		}
-		if p[1] == a.probePort {
-			return fmt.Errorf(i18n.T("端口 %d 已被 bowel 自己占用", "Port %d is taken by bowel itself"), p[1])
-		}
-		if slices.Contains([]int{old.MixedPort, old.HTTPPort, old.SocksPort, old.ExtPort()}, p[1]) {
+	had := listenPorts(old)
+	for _, p := range listenPorts(next) {
+		if p == 0 || slices.Contains(had, p) {
 			continue // the core's already: it moves between listeners on reload
 		}
-		l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p[1]))
+		if p == a.probePort {
+			return fmt.Errorf(i18n.T("端口 %d 已被 bowel 自己占用", "Port %d is taken by bowel itself"), p)
+		}
+		l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
 		if err != nil {
-			return fmt.Errorf(i18n.T("端口 %d 被其他程序占用", "Port %d is taken by another program"), p[1])
+			return fmt.Errorf(i18n.T("端口 %d 被其他程序占用", "Port %d is taken by another program"), p)
 		}
 		l.Close()
+	}
+	// An extra port is given a route group there is. One whose group is
+	// deleted later stays in the settings, closed.
+	for _, e := range next.ExtraPorts {
+		if !slices.Contains(old.ExtraPorts, e) && !slices.ContainsFunc(routes.Build(next.Routing, nil), func(r routes.Route) bool { return r.ID == e.Route }) {
+			return fmt.Errorf(i18n.T("端口 %d 指向不存在的路由组: %s", "Port %d points at a route group that doesn't exist: %s"), e.Port, e.Route)
+		}
 	}
 	if _, err := a.settings.Update(func(s *settings.Settings) { *s = next }); err != nil {
 		return err
 	}
 	a.loadStrip() // what node names are shown without, before the interface re-reads them
 	i18n.Set(next.Language)
-	if appearanceOf(next) != appearanceOf(old) {
+	if appearanceOf(next) != appearanceOf(old) && !a.headless {
 		mygo.Theme.SetSource(mygo.ThemeSource(appearanceOf(next)))
 	}
-	if appOnly(old, next) { // the core does not care
+	if next.TraySpeed != old.TraySpeed {
+		a.mon.Wake() // the rates beside the icon: now, and at their own pace
+		a.trayTick()
+	}
+	if !reapply && appOnly(old, next) { // the core does not care
 		var err error
 		if !reflect.DeepEqual(old.Routing, next.Routing) {
 			err = a.followPolicies()
@@ -1158,7 +1449,7 @@ func (a *App) revealConfig() error {
 		// /select opens the folder with the file chosen. Explorer reports
 		// success as exit code 1, as it has since forever; anything else
 		// is a failure, and no explorer at all is the worst one.
-		if err := exec.Command("explorer", "/select,"+p).Run(); err != nil {
+		if err := nowindow.Command("explorer", "/select,"+p).Run(); err != nil {
 			var ee *exec.ExitError
 			if !errors.As(err, &ee) || ee.ExitCode() != 1 {
 				return err
@@ -1166,7 +1457,7 @@ func (a *App) revealConfig() error {
 		}
 		return nil
 	}
-	return exec.Command("open", "-R", p).Run()
+	return nowindow.Command("open", "-R", p).Run()
 }
 
 func (a *App) route(id string) routes.Route {
@@ -1181,7 +1472,7 @@ func (a *App) route(id string) routes.Route {
 // selectNode pins a route group to node; "" sends it back to the fastest.
 func (a *App) selectNode(routeID, node string) error {
 	r := a.route(routeID)
-	if r.ID == "" || r.Direct {
+	if r.ID == "" || !r.NodeGroups() {
 		return errors.New(i18n.T("没有这条路由", "No such route"))
 	}
 	if a.importedNow() != nil {
@@ -1205,7 +1496,7 @@ func (a *App) selectNode(routeID, node string) error {
 
 func (a *App) testRoute(ctx context.Context, routeID string) error {
 	r := a.route(routeID)
-	if r.ID == "" || r.Direct {
+	if r.ID == "" || !r.NodeGroups() {
 		return errors.New(i18n.T("没有这条路由", "No such route"))
 	}
 	c, err := a.core.Client()
@@ -1453,6 +1744,68 @@ func (a *App) addProviderFile(ctx context.Context) (*ProviderView, error) {
 	return &v, err
 }
 
+// addProviderFileAs adds a local file under name, the name a config has for
+// a proxy-provider that is a local file: the config can be used from then on.
+func (a *App) addProviderFileAs(ctx context.Context, name string) error {
+	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+		Parent: mygo.CallerWindow(ctx), Title: fmt.Sprintf(i18n.T("选择「%s」的文件", "Choose the file of %s"), name),
+		Filters: []mygo.FileFilter{{Name: i18n.T("Clash 配置或节点列表", "Clash config or node list"), Extensions: []string{"yaml", "yml", "txt", "conf"}}},
+	})
+	if err != nil || len(paths) == 0 {
+		return err
+	}
+	return a.addFileAs(paths[0], name)
+}
+
+func (a *App) addFileAs(path, name string) error {
+	done := a.begin("add")
+	defer done()
+	p, err := a.providers.AddFile(path)
+	if err != nil {
+		return err
+	}
+	if p, err = a.providers.Rename(p.ID, name); err != nil {
+		_ = a.providers.Delete(p.ID)
+		return err
+	}
+	_, err = a.afterProviderAdded(p)
+	return err
+}
+
+// reloadProvider reads a local file's Provider again from the file it came
+// from. That is a file chosen on this machine; when there is none to go
+// back to (pasted text, a configuration imported from elsewhere), it asks.
+func (a *App) reloadProvider(ctx context.Context, id string) error {
+	p, ok := a.providers.Get(id)
+	if !ok {
+		return fmt.Errorf(i18n.T("没有这个 Provider: %s", "No such Provider: %s"), id)
+	}
+	path := ""
+	if p.Source == "" {
+		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+			Parent: mygo.CallerWindow(ctx), Title: fmt.Sprintf(i18n.T("选择「%s」的文件", "Choose the file of %s"), p.Name),
+			Filters: []mygo.FileFilter{{Name: i18n.T("Clash 配置或节点列表", "Clash config or node list"), Extensions: []string{"yaml", "yml", "txt", "conf"}}},
+		})
+		if err != nil || len(paths) == 0 {
+			return err
+		}
+		path = paths[0]
+	}
+	return a.reloadFile(id, path)
+}
+
+func (a *App) reloadFile(id, path string) error {
+	done := a.begin("provider:" + id)
+	defer done()
+	if _, err := a.providers.Reload(id, path); err != nil {
+		a.emit()
+		return err
+	}
+	err := a.applyConfig()
+	go a.healthCheck(id)
+	return err
+}
+
 func (a *App) afterProviderAdded(p provider.Provider) (ProviderView, error) {
 	if err := a.applyConfig(); err != nil {
 		_ = a.providers.Delete(p.ID)
@@ -1526,7 +1879,12 @@ func (a *App) setProviderEnabled(id string, on bool) error {
 }
 
 func (a *App) renameProvider(id, name string) error {
-	_, err := a.providers.Rename(id, name)
+	p, err := a.providers.Rename(id, name)
+	// A config's local file is found by its name: one in use may have just
+	// gained or lost its file.
+	if err == nil && p.Kind == provider.File && a.settings.Get().ImportedRouting != "" {
+		return a.applyConfig()
+	}
 	a.emit()
 	return err
 }
@@ -1588,6 +1946,61 @@ func (a *App) reroute(r routes.UserRule, keep string) int {
 	return a.rerouteBy(r.Matches, keep)
 }
 
+// closeUnmatched closes the connections no rule matched, so that a change
+// of where they go shows. It reports how many it closed.
+func (a *App) closeUnmatched() int {
+	c, err := a.core.Client()
+	if err != nil {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snap, err := c.Connections(ctx)
+	if err != nil {
+		return 0
+	}
+	var ids []string
+	for _, cn := range snap.Connections {
+		if cn.Rule == "Match" {
+			ids = append(ids, cn.ID)
+		}
+	}
+	if len(ids) > 0 && a.closeConns(ids) == nil {
+		a.mon.Wake()
+		return len(ids)
+	}
+	return 0
+}
+
+// closeRoute closes the connections on route group id, so that a change of
+// where it leaves shows. It reports how many it closed.
+func (a *App) closeRoute(id string) int {
+	if id == routes.Default {
+		return a.closeUnmatched()
+	}
+	c, err := a.core.Client()
+	if err != nil {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snap, err := c.Connections(ctx)
+	if err != nil {
+		return 0
+	}
+	var ids []string
+	for _, cn := range snap.Connections {
+		if len(cn.Chains) > 0 && a.routeOfGroup(cn.Chains[len(cn.Chains)-1], cn.Rule) == id {
+			ids = append(ids, cn.ID)
+		}
+	}
+	if len(ids) > 0 && a.closeConns(ids) == nil {
+		a.mon.Wake()
+		return len(ids)
+	}
+	return 0
+}
+
 // rerouteBy is reroute for whatever match catches.
 func (a *App) rerouteBy(match func(host, ip string) bool, keep string) int {
 	c, err := a.core.Client()
@@ -1629,16 +2042,25 @@ func (a *App) rerouteBy(match func(host, ip string) bool, keep string) int {
 // routeOfGroup maps a mihomo group name (or DIRECT, REJECT) to a route id.
 func (a *App) routeOfGroup(group, rule string) string {
 	for _, r := range a.routes() {
-		if !r.Direct && (group == routes.Group(r) || routes.Internal(r, group)) {
+		if (!r.Direct || r.OwnExit()) && (group == routes.Group(r) || routes.Internal(r, group)) {
 			return r.ID
 		}
 	}
 	if group == "REJECT" { // a route's empty range shows as the route's group
 		return routes.Reject
 	}
-	if group == "DIRECT" && rule != "" && rule != "Match" {
+	if group != "DIRECT" {
+		return ""
+	}
+	if rule == "Match" { // what no rule matched, when the default route goes direct
+		if a.route(routes.Default).Policy.Direct {
+			return routes.Default
+		}
+		return ""
+	}
+	if rule != "" {
 		for _, r := range a.routes() {
-			if r.Direct && !r.Reject {
+			if r.Direct && !r.Reject && r.ID != routes.Default && !r.OwnExit() {
 				return r.ID
 			}
 		}
@@ -1991,7 +2413,7 @@ func (a *App) snapshot() Snapshot {
 	s := a.settings.Get()
 	cs := a.core.Status()
 	a.mu.Lock()
-	sys, sysErr, px, provNodes, you := a.sys, a.sysErr, a.proxies, a.provNodes, a.you
+	sys, proxyErr, px, provNodes, you := a.sys, a.proxyErr, a.proxies, a.provNodes, a.you
 	pings, sites := a.pings, a.sites
 	openAtLogin := a.openAtLogin
 	gwp, gwErr := a.gwProbe, a.gwErr
@@ -2013,6 +2435,7 @@ func (a *App) snapshot() Snapshot {
 		Mode: s.Mode, Pending: pending, Version: mygo.App.Version(), RuleCount: a.ruleCount(s),
 		Settings: s, ConfigPath: a.core.ConfigPath(), OpenAtLogin: openAtLogin, RuleSets: a.ruleSetViews(s),
 		ControllerTCP: a.core.TCPAddr(),
+		CanUndoImport: a.canUndoImport(),
 		Core:          Core{State: string(cs.State), Version: cs.Version, Error: cs.Error},
 		Routes:        []RouteView{},
 		Nodes:         []NodeView{},
@@ -2026,27 +2449,19 @@ func (a *App) snapshot() Snapshot {
 		switch {
 		case sys.Ours:
 			tk.System.Status = "on"
+		case proxyErr != "": // bowel's own failure, whatever the system has
+			tk.System.Status, tk.System.Detail = "error", proxyErr
 		case sys.On:
 			tk.System.Status, tk.System.Detail = "hijacked", fmt.Sprintf(i18n.T("现在指向 %s:%d", "Now points at %s:%d"), sys.Host, sys.Port)
 		default:
 			tk.System.Status, tk.System.Detail = "hijacked", i18n.T("系统代理被关掉了", "The system proxy was turned off")
 		}
-		// A change that failed says why, rather than leaving the reader to
-		// blame another program for it.
-		if sysErr != "" {
-			tk.System.Detail += " · " + sysErr
-		}
 	}
-	installed := tun.Installed(a.tunBin)
-	tk.Tun = Entry{Wanted: s.Tun, Status: "off"}
-	switch {
-	case on && s.Tun && installed && cs.State == core.Running:
-		tk.Tun.Status = "on"
-	case on && s.Tun && installed:
-		tk.Tun.Status, tk.Tun.Detail = "error", i18n.T("内核没有运行", "The core isn't running")
-	case !installed:
-		tk.Tun.Status = "install"
+	fault := ""
+	if f := a.tunFault.Load(); f != nil {
+		fault = *f
 	}
+	tk.Tun = tunEntry(s.Tun, on, osTun.installed(a.tunBin) && !a.tunGone.Load(), fault, cs.State)
 	if s.AllowLan {
 		tk.LanAddr = lanAddr(s.MixedPort)
 	}
@@ -2054,6 +2469,7 @@ func (a *App) snapshot() Snapshot {
 	snap.Takeover = tk
 	snap.Dev = a.devReport(s, tk.Tun.Status == "on")
 	snap.Tools = a.toolsView()
+	snap.Sources = a.sourcesView()
 
 	// Nodes, in their providers' order.
 	mains := mainURLs(s)
@@ -2106,6 +2522,9 @@ func (a *App) snapshot() Snapshot {
 		total += v
 	}
 	for _, r := range a.routes() {
+		if r.ID == routes.Default && r.Policy.Direct && s.Mode == "global" {
+			r.Direct = false // global mode has no rules to miss: it goes by the nodes
+		}
 		rv := RouteView{ID: r.ID, Name: routes.Title(r), Color: r.Color, Summary: routes.Describe(r), Rules: len(r.Rules), Direct: r.Direct, Reject: r.Reject}
 		if r.ID == routes.Default {
 			rv.Rules = 1
@@ -2134,10 +2553,17 @@ func (a *App) snapshot() Snapshot {
 		}
 		snap.Routes = append(snap.Routes, rv)
 	}
+	// What the rest fall through to is listed after them.
+	if i := slices.IndexFunc(snap.Routes, func(r RouteView) bool { return r.ID == routes.Default }); i >= 0 {
+		last := snap.Routes[i]
+		snap.Routes = append(slices.Delete(snap.Routes, i, i+1), last)
+	}
 
 	// Exit and the user's place.
-	if n := a.listedNode(currentNode(px, a.route(routes.Default)), provNodes); n != "" && n != "DIRECT" {
-		snap.Exit = &Exit{Node: n, Where: view(n).Where}
+	if def := a.route(routes.Default); !def.Direct || def.Policy.Direct && s.Mode == "global" {
+		if n := a.listedNode(currentNode(px, def), provNodes); n != "" && n != "DIRECT" {
+			snap.Exit = &Exit{Node: n, Where: view(n).Where}
+		}
 	}
 	if you != nil {
 		l := located(*you)
@@ -2228,6 +2654,12 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 	}
 	if cs.State == core.Failed {
 		return StateError, &Issue{Level: "error", Text: i18n.T("内核未运行", "The core isn't running"), Detail: firstLine(cs.Error)}
+	}
+	if cs.State == core.Running && cs.Error != "" {
+		return StateError, &Issue{Level: "error", Text: i18n.T("代理端口打不开", "The proxy port can't be opened"), Detail: firstLine(cs.Error)}
+	}
+	if tk.System.Status == "error" {
+		return StateError, &Issue{Level: "error", Text: i18n.T("没能接管系统代理", "Couldn't take over the system proxy"), Detail: tk.System.Detail, Action: "retake", Label: i18n.T("重新接管", "Take over again")}
 	}
 	if tk.System.Status == "hijacked" {
 		return StateError, &Issue{Level: "error", Text: i18n.T("系统代理被其他程序改掉了", "Another program changed the system proxy"), Detail: i18n.T("网页流量现在没有经过 bowel。", "Web traffic isn't going through bowel now."), Action: "retake", Label: i18n.T("重新接管", "Take over again")}

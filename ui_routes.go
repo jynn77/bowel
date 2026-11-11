@@ -201,7 +201,136 @@ func (u *UI) autoSeg(c *ui.Context, p *pal, rid string) {
 	}
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 		btn(c.Key("services"), p, i18n.T("服务和规则", "Services and rules")).OnClick(func() { u.openRoutes(rid, "") })
-		u.stratSeg(c, p, rid)
+		if !u.route(rid).Direct {
+			u.stratSeg(c, p, rid)
+		}
+	})
+}
+
+// setExitDirect says whether group rid's traffic goes without a node, and
+// closes its connections, so that the change shows.
+func (u *UI) setExitDirect(rid string, on bool) {
+	u.changeRouting(func(s *settings.Settings) {
+		s.Routing.ChangePolicy(rid, func(q *routes.Policy) { q.Direct = on })
+	}, func() { u.app.closeRoute(rid) })
+}
+
+// exitChoice is where group rid's traffic leaves: by a node, or directly.
+// It comes before the node strategy, which only the first of those has.
+func (u *UI) exitChoice(c *ui.Context, p *pal, rid string) {
+	q := u.policy(rid)
+	opt := func(key, title, sub string, on bool, onClick func()) {
+		b := ui.ButtonBase(c.Key(key)).Column().Gap(1).Grow(1).Basis(0).MinWidth(0).Padding(9, 12).Radius(p.r(8)).AlignItems(ui.Start)
+		switch {
+		case on:
+			b.Border(1.5, p.ink)
+		default:
+			b.Border(1, p.hair)
+			if b.Hovered() {
+				b.Background(p.hover)
+			}
+		}
+		b.OnClick(onClick).Children(func() {
+			ui.Text(c, title).FontSize(13.5).FontWeight(600).TextColor(p.ink).NoWrap()
+			ui.Text(c, sub).FontSize(11.5).TextColor(p.mute).SingleLine()
+		})
+	}
+	ui.Column(c.Key("exit-choice")).Gap(8).Children(func() {
+		ui.Row(c).Gap(8).Children(func() {
+			opt("node", i18n.T("走节点", "Via a node"), modeName(q.Mode), !q.Direct, func() {
+				if q.Direct {
+					u.setExitDirect(rid, false)
+				}
+			})
+			opt("direct", i18n.T("直接连接", "Direct"), i18n.T("不经过节点，用本机网络", "No node, this machine's network"), q.Direct, func() {
+				if !q.Direct {
+					u.setExitDirect(rid, true)
+				}
+			})
+		})
+		if q.Direct {
+			text := i18n.T("没命中规则的网站会用本机网络访问。当前网络打不开的网站，需要加规则送到走节点的路由组。", "Sites no rule matches use this machine's network. A site that won't open on it needs a rule sending it to a route group with a node.")
+			if rid != routes.Default {
+				text = i18n.T("这个路由组的流量用本机网络访问，不经过节点。节点策略会保留，切回「走节点」后和原来一样。", "This group's traffic uses this machine's network, with no node. Its node strategy is kept, and is as it was once you switch back to a node.")
+			}
+			if u.snap.Mode == "global" {
+				text += i18n.T("现在是全局模式，所有流量仍走节点，回到规则模式后生效。", " Global mode sends everything through a node, so this applies once you're back in rule mode.")
+			}
+			ui.Text(c, text).FontSize(12).TextColor(p.ink2).Padding(9, 12).Radius(p.r(8)).Background(p.warn.Alpha(.13))
+		}
+	})
+}
+
+// groupExit is the body of a route group's detail: where it leaves, and
+// the nodes if a node is what it leaves by.
+func (u *UI) groupExit(c *ui.Context, p *pal, rid string, w float32) {
+	if u.snap.Imported == nil && routes.ChoosesExit(rid) {
+		ui.Column(c).Padding(10, 26, 12, 26).Shrink(0).Children(func() { u.exitChoice(c, p, rid) })
+		if u.route(rid).Direct {
+			return
+		}
+	}
+	u.nodePicker(c, p, rid, w)
+}
+
+// The route list's measures: matchLine draws through its swatches by them.
+const (
+	matchRowH    = 58
+	matchLabelH  = 30
+	matchNameH   = 22
+	matchSwatchY = (matchRowH-40)/2 + matchNameH/2 // from a row's top
+	matchSwatchX = 15
+	matchGap     = 9 // the line stops this far from a swatch's middle
+)
+
+// matchLabel introduces the row for what the others miss.
+func (u *UI) matchLabel(c *ui.Context, p *pal, other RouteView) {
+	text := i18n.T("以上规则都没命中", "None of the rules above matched")
+	if other.Share > 0 {
+		text = fmt.Sprintf(i18n.T("以上规则都没命中 · 今日还剩 %d%% 的流量", "None of the rules above matched · %d%% of today's traffic is left"), int(other.Share*100+.5))
+	}
+	ui.Row(c).Height(matchLabelH).AlignItems(ui.Center).Padding(0, 10, 0, 32).Children(func() {
+		ui.Text(c, text).FontSize(11).FontWeight(600).TextColor(p.mute).SingleLine()
+	})
+}
+
+// matchLine runs down through the route groups' swatches into the row for
+// what none of them matched: rules are tried in turn, and what isn't caught
+// goes on. It thins by the share of today's traffic each group took.
+func (u *UI) matchLine(c *ui.Context, p *pal, rest []RouteView, other RouteView) {
+	if len(rest) == 0 {
+		return
+	}
+	type seg struct {
+		y0, y1, w float32
+		from, to  ui.Color
+	}
+	y := func(i int) float32 { return float32(matchRowH*i + matchSwatchY) }
+	weight := func(left float64) float32 { return float32(1.5 + 4*max(0, left)) }
+	endY := float32(matchRowH*len(rest)+matchLabelH) + matchSwatchY
+	segs := make([]seg, 0, len(rest)+1)
+	first := p.routeColor(rest[0].ID)
+	segs = append(segs, seg{y0: 2, y1: y(0) - matchGap, w: weight(1), from: first.Alpha(0), to: first})
+	left := 1.0
+	for i, r := range rest {
+		left -= r.Share
+		if i == len(rest)-1 {
+			segs = append(segs, seg{y(i) + matchGap, endY - matchGap - 9, weight(left), p.routeColor(r.ID), p.routeColor(other.ID)})
+			break
+		}
+		segs = append(segs, seg{y(i) + matchGap, y(i+1) - matchGap, weight(left), p.routeColor(r.ID), p.routeColor(rest[i+1].ID)})
+	}
+	arrow := p.routeColor(other.ID)
+	ui.Box(c.Key("line")).Absolute().Left(0).Top(0).Bottom(0).Width(30).IgnoreInput(true).AccessHidden(true).Draw(func(pt *ui.Painter, r ui.Rect) {
+		x := r.X + matchSwatchX
+		for _, s := range segs {
+			var path ui.Path
+			path.MoveTo(x, r.Y+s.y0).LineTo(x, r.Y+s.y1).Cap(ui.RoundCap)
+			pt.StrokePathGradient(&path, s.w, ui.LinearGradient{From: s.from, To: s.to, Angle: 180})
+		}
+		var tip ui.Path
+		tip.MoveTo(x-5, r.Y+endY-matchGap-9).LineTo(x+5, r.Y+endY-matchGap-9).LineTo(x, r.Y+endY-matchGap).Close()
+		pt.FillPath(&tip, arrow)
 	})
 }
 
@@ -377,9 +506,15 @@ func (u *UI) routesPage(c *ui.Context, p *pal) {
 			ui.Column(c).Width(244).Shrink(0).Gap(8).Children(func() {
 				ui.Scroll(c.Key("list")).Grow(1).Basis(0).MinHeight(0).Gap(2).Children(func() {
 					for _, r := range all {
-						u.routesItem(c, p, r)
+						if r.ID != routes.Default {
+							u.routesItem(c, p, r)
+						}
 					}
+					ui.Text(c, i18n.T("以上规则都没命中", "None of the rules above matched")).FontSize(11).FontWeight(600).TextColor(p.mute).SingleLine().Padding(8, 10, 2, 10)
+					u.routesItem(c, p, all[slices.IndexFunc(all, func(r routes.Route) bool { return r.ID == routes.Default })])
 				})
+				ui.Text(c, i18n.T("拖动可以调整顺序。规则集从上到下匹配；其他规则越具体越优先，同样具体时靠上的路由组优先。", "Drag to reorder. Rule sets match from the top down; other rules go most specific first, and of two equally specific ones the higher group's wins.")).
+					FontSize(11).TextColor(p.mute).Padding(0, 10)
 				btn(c.Key("new"), p, i18n.T("＋ 新建路由组", "＋ New route group")).AlignSelf(ui.Start).OnClick(func() { u.newGroup(all) })
 			})
 			ui.Scroll(c.Key("main:"+st.group)).Grow(1).Basis(0).MinWidth(0).Padding(0, 12, 0, 0).Children(func() {
@@ -398,12 +533,30 @@ func (u *UI) newGroup(all []routes.Route) {
 	u.routes.focusName = true
 }
 
+// groupDrag and setDrag are a route group and a rule set being dragged to
+// another's place, by their ids.
+type (
+	groupDrag string
+	setDrag   string
+)
+
 func (u *UI) routesItem(c *ui.Context, p *pal, r routes.Route) {
 	st := &u.routes
 	on := st.group == r.ID
 	v := u.route(r.ID)
 	b := ui.ButtonBase(c.Key(r.ID)).Column().Gap(2).Padding(8, 10).Radius(p.r(8)).AlignItems(ui.Stretch)
+	over := false
+	if !routes.Fixed(r.ID) { // the fixed groups stay where they are, after the others
+		b.Drag(groupDrag(r.ID))
+		if id, ok := ui.Drop[groupDrag](b); ok {
+			u.changeRouting(func(s *settings.Settings) { s.Routing.MoveGroup(string(id), r.ID) }, nil)
+		}
+		id, ok := ui.DragOver[groupDrag](b)
+		over = ok && string(id) != r.ID
+	}
 	switch {
+	case over: // it would take this one's place
+		b.Background(p.hair)
 	case on:
 		b.Background(p.hair2)
 	case b.Hovered():
@@ -418,6 +571,9 @@ func (u *UI) routesItem(c *ui.Context, p *pal, r routes.Route) {
 			}
 		})
 		line := u.exitWord(v)
+		if r.Direct && !v.Direct { // just chosen: the app has yet to say so
+			line = noNodeWord(v)
+		}
 		if !r.Direct {
 			line = modeName(u.policy(r.ID).Mode) + " · " + line
 		}
@@ -467,7 +623,7 @@ func (u *UI) testerPath(c *ui.Context, p *pal, s settings.Settings, all []routes
 		}
 	}
 	if id == "" {
-		ui.Text(c, i18n.T("没有命中域名规则：国内网站和局域网按 GeoSite / GeoIP 走「直连」，其余走「默认」。", "No domain rule matches it: mainland sites and the LAN go Direct by GeoSite / GeoIP, the rest by Default.")).
+		ui.Text(c, i18n.T("没有命中域名规则：国内网站和局域网按 GeoSite / GeoIP 走「直连」，其余归「其他流量」。", "No domain rule matches it: mainland sites and the LAN go Direct by GeoSite / GeoIP, the rest is Other.")).
 			FontSize(12).TextColor(p.ink2).SingleLine().Tooltip(host)
 		return
 	}
@@ -503,7 +659,7 @@ func (u *UI) testerPath(c *ui.Context, p *pal, s settings.Settings, all []routes
 func (u *UI) routesGroup(c *ui.Context, p *pal, all []routes.Route, r routes.Route) {
 	st := &u.routes
 	v := u.route(r.ID)
-	fixedName := r.ID == routes.Default || r.Direct
+	fixedName := routes.Fixed(r.ID)
 	if st.nameOf != r.ID {
 		st.name, st.nameOf, st.nameErr = routes.Title(r), r.ID, ""
 	}
@@ -563,13 +719,16 @@ func (u *UI) routesGroup(c *ui.Context, p *pal, all []routes.Route, r routes.Rou
 	}
 	if r.Reject {
 		note(i18n.T("命中这里规则的连接会被拒绝，不经过节点，所以没有节点策略。", "Connections matching the rules here are refused, with no node, so there's no node strategy."))
-	} else if r.Direct {
+	} else if !routes.ChoosesExit(r.ID) {
 		note(i18n.T("这里的流量直接连接，不经过节点，所以没有节点策略。", "Traffic here connects directly, with no node, so there's no node strategy."))
 	} else {
-		u.strategyCard(c, p, v)
+		ui.Column(c).Margin(0, 0, 14, 0).Children(func() { u.exitChoice(c, p, r.ID) })
+		if !r.Direct {
+			u.strategyCard(c, p, v)
+		}
 	}
 	if r.ID == routes.Default {
-		note(i18n.T("其他规则都没命中的流量走这里。在这里加规则，可以把个别网站明确留在默认出口。", "Traffic no other rule matched goes here. A rule here keeps a site on the default exit on purpose."))
+		note(i18n.T("没命中任何规则的流量走这里。想让某个网站固定走这里，可以在这里加一条规则。", "Traffic no rule matched goes here. To keep a site here on purpose, add a rule here."))
 	}
 	u.servicesHead(c, p, all, r)
 	if st.rs.open {
@@ -619,11 +778,7 @@ func (u *UI) strategyCard(c *ui.Context, p *pal, v RouteView) {
 			ui.Spacer(c)
 			d, _, _ := u.delayWord(v)
 			ui.Text(c, d).FontSize(12).FontFeatures("tnum").TextColor(p.mute).NoWrap().Shrink(0)
-			mark := "▾"
-			if st.pol {
-				mark = "▴"
-			}
-			ui.Text(c, mark).FontSize(11).TextColor(p.mute).Shrink(0)
+			chevron(c, p.mute, st.pol)
 		})
 		if st.pol {
 			ui.Row(c).Padding(2, 14, 10, 14).Children(func() { u.stratSeg(c, p, v.ID) })
@@ -689,7 +844,7 @@ func (u *UI) serviceRow(c *ui.Context, p *pal, all []routes.Route, r routes.Rout
 	case s.Source != "":
 		sub, subBad = u.ruleSetRowWord(s)
 	case s.Off:
-		sub = i18n.T("已停用，流量回到默认路由组", "Off: its traffic goes back to Default")
+		sub = i18n.T("已停用，这些流量回到「其他流量」", "Off: its traffic goes back to Other")
 	case len(live) > 0:
 		shown := make([]string, 0, 2)
 		for _, l := range live[:min(2, len(live))] {
@@ -702,7 +857,19 @@ func (u *UI) serviceRow(c *ui.Context, p *pal, all []routes.Route, r routes.Rout
 	}
 	ui.Column(c.Key(s.ID)).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
 		b := ui.ButtonBase(c.Key("head")).Row().Gap(10).Padding(9, 4).AlignItems(ui.Center)
-		if b.Hovered() {
+		over := false
+		if s.Source != "" { // rule sets apply in the order they are listed in
+			b.Drag(setDrag(s.ID))
+			if id, ok := ui.Drop[setDrag](b); ok {
+				u.changeRouting(func(st *settings.Settings) { st.Routing.MoveRuleSet(string(id), s.ID) }, nil)
+			}
+			id, ok := ui.DragOver[setDrag](b)
+			over = ok && string(id) != s.ID
+		}
+		switch {
+		case over: // it would take this one's place
+			b.Background(p.hair)
+		case b.Hovered():
 			b.Background(p.hover)
 		}
 		if s.Off {
@@ -737,11 +904,7 @@ func (u *UI) serviceRow(c *ui.Context, p *pal, all []routes.Route, r routes.Rout
 			if tag != "" {
 				ui.Text(c, tag).FontSize(11).TextColor(p.faint).NoWrap().Shrink(0)
 			}
-			mark := "▾"
-			if open {
-				mark = "▴"
-			}
-			ui.Text(c, mark).FontSize(11).TextColor(p.mute).Shrink(0)
+			chevron(c, p.mute, open)
 		})
 		if open {
 			u.serviceEditor(c, p, all, r, s)
