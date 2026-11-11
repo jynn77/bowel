@@ -28,14 +28,16 @@ The desktop interface is built in Go and rendered directly via the GPU, with no 
 A fork of [21stware/bowel](https://github.com/21stware/bowel). It follows upstream, and keeps a few things of its own on top:
 
 - **Name rules**: node names are shown without what a list of rules matches — plain text as itself, a rule between two slashes as a regular expression, as many rules as you like. Rules are read against the name as shown, so the zero-width characters subscriptions hide in names do not stand in the way of one. The core keeps the names it was given: choices, rules and the running config are unchanged.
+- **The switch note**: a route moving off a failed node says `[Provider]Node is down, switched to [Provider]Node`, both names through the same rules, and goes after eight seconds — or as soon as the route is pinned, moves again, the failed node answers, or traffic stops being taken over.
 - **System proxy on Windows**: `InternetSetOption` can be refused for the per-user LAN settings in an elevated process, which is how the shortcut runs, since TUN needs it. That write falls back to the registry, where Windows' own settings page reads the same values, and the change is announced the usual way. Taking over also clears a PAC script the machine had: a script comes before the fixed proxies, and one left in place made the app report its own takeover as someone else's.
 - **Open at login on Windows**: the framework's login item goes through the Run key, whose entries start unelevated — dead for a tunnel. It is a scheduled task of the highest run level here, started with the administrator's token at logon and without a prompt; the uninstaller takes the task away.
 - **Showing files**: 设置 > 关于's "Running config" selects the file in Explorer instead of calling the Finder's `open -R`, and says so.
-- **Delay test on Windows**: `ping.exe` runs with `CREATE_NO_WINDOW` and its delay is read out of the output whatever language the line is in. A console per node used to flash onto the screen for every test round.
-- **TUN on Windows**: the core's copy and `wintun.dll` are staged in `%APPDATA%\bowel\bin`, and a device is opened only when bowel itself is elevated. On the way out the core drops the tunnel before it is stopped, and the routes a killed core leaves behind are taken back on the next start.
+- **Delay test on Windows**: an echo goes through IP Helper (`IcmpSendEcho`), which starts no process at all — a console used to flash for every node in a test round, even with `CREATE_NO_WINDOW`. `ping.exe` stays as the fallback, and as the way to leave by a given adapter (`-S`).
 - **Provider addresses**: every provider's node list shows the server each node dials, read once per provider file rather than once per snapshot.
 - **Exit lookup**: the exit probe takes a preset — Cloudflare, ip.sb, ipwho.is, ip-api or ipinfo.io — or any http(s) address that answers with an address and a country.
 - **Connections**: the clear button sits by the app filter, and asks for a second click before it clears.
+
+Upstream has the native TUN on Windows since 0.3: an elevated copy of the core under `%ProgramData%`, started by a scheduled task, and `nowindow` for every console child.
 
 ## Features
 
